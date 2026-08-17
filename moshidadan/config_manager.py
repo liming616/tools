@@ -34,6 +34,7 @@ CONFIG_SCHEMA = {
     "auto_save_interval_s": int,    # 30-3600
     "log_retention_days": int,      # 1-365
     "template_path": str,           # Excel模版路径
+    "prefill_profiles": list,       # 预制信息档案列表
     "version": int,                 # schema version
 }
 
@@ -48,6 +49,7 @@ DEFAULT_CONFIG = {
     "auto_save_interval_s": 120,
     "log_retention_days": 30,
     "template_path": "",
+    "prefill_profiles": [],
     "version": CONFIG_VERSION,
 }
 

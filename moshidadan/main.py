@@ -45,6 +45,7 @@ from address_parser import parse_address_safe, ParsedAddress
 from template_manager import (
     DEFAULT_HEADERS, load_template_headers, map_headers_to_fields,
     build_row_tuple, empty_fields_dict, compute_column_width,
+    load_template_and_prefill,
 )
 
 # 安全剪贴板操作
@@ -130,6 +131,15 @@ class App:
         self._column_ids: list[str] = []              # "col0", "col1", ...
         self._has_template: bool = False
         self._template_path: Optional[str] = None
+
+        # ---- 预制信息 ----
+        self._prefill_profiles: list[dict] = self._sanitize_prefill(
+            self.config.get("prefill_profiles", [])
+        )
+        self._prefill_var: Optional[tk.StringVar] = None
+        self._edit_prefill_btn: Optional[ttk.Button] = None
+        self._prefill_echo: Optional[tk.Text] = None
+        self._prefill_echo_frame: Optional[ttk.Frame] = None
 
         # ---- 创建主窗口 ----
         self._root = tk.Tk()
@@ -331,15 +341,20 @@ class App:
         )
         self._health_label.pack(side=tk.LEFT, padx=pad_x)
 
-        # === 预览区 ===
-        preview_frame = ttk.LabelFrame(self._root, text="📋 剪贴板预览（可编辑）", padding=6)
-        preview_frame.pack(fill=tk.BOTH, expand=False, padx=pad_x, pady=(8, 2))
+        # === 预览区 + 收集区（可拖拽分隔，窗口缩放时按权重分配） ===
+        paned = ttk.Panedwindow(self._root, orient=tk.VERTICAL)
+        paned.pack(fill=tk.BOTH, expand=True, padx=pad_x, pady=(8, 2))
+
+        preview_frame = ttk.LabelFrame(paned, text="📋 剪贴板预览（可编辑）", padding=6)
+
+        preview_body = ttk.Frame(preview_frame)
+        preview_body.pack(fill=tk.BOTH, expand=True)
 
         self._preview_text = tk.Text(
-            preview_frame,
+            preview_body,
             font=("Microsoft YaHei", 10),
             wrap=tk.WORD,
-            height=8,
+            height=6,
             state="normal",             # 显式声明可编辑
             insertbackground="#1a1a1a",  # 光标颜色（浅色背景上更醒目）
             bg="#FFFDE7",
@@ -351,7 +366,12 @@ class App:
             padx=10,
             pady=8,
         )
-        self._preview_text.pack(fill=tk.BOTH, expand=True)
+        preview_vsb = ttk.Scrollbar(
+            preview_body, orient=tk.VERTICAL, command=self._preview_text.yview,
+        )
+        self._preview_text.configure(yscrollcommand=preview_vsb.set)
+        preview_vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        self._preview_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self._preview_text.bind("<KeyRelease>", self._on_preview_modified)
 
         # 预览区按钮行
@@ -391,11 +411,12 @@ class App:
         )
         self._auto_cb.pack(side=tk.RIGHT, padx=(0, 12))
 
+        paned.add(preview_frame, weight=3)
+
         # === 收集区 ===
         self._count_var = tk.StringVar(value="已收集: 0 条")
 
-        collect_frame = ttk.LabelFrame(self._root, text="📦 已收集文本", padding=6)
-        collect_frame.pack(fill=tk.BOTH, expand=True, padx=pad_x, pady=(8, 2))
+        collect_frame = ttk.LabelFrame(paned, text="📦 已收集文本", padding=6)
 
         # 表格工具栏
         collect_toolbar = ttk.Frame(collect_frame)
@@ -408,11 +429,22 @@ class App:
             foreground="#666",
         ).pack(side=tk.LEFT)
 
-        # 上传模版按钮
+        # 导入模版按钮（模版与预制信息合并：表头=模版列，数据行=预制信息）
         ttk.Button(
-            collect_toolbar, text="📂 上传模版",
-            command=self._upload_template,
+            collect_toolbar, text="📂 导入模版",
+            command=self._import_template,
         ).pack(side=tk.LEFT, padx=(8, 0))
+        self._edit_prefill_btn = ttk.Button(
+            collect_toolbar, text="✏️ 编辑预制信息",
+            command=self._edit_prefill,
+        )
+        self._edit_prefill_btn.pack(side=tk.LEFT, padx=(6, 0))
+        self._edit_prefill_btn.configure(state=tk.DISABLED)
+        self._prefill_var = tk.StringVar(value="预制信息: 未导入")
+        ttk.Label(
+            collect_toolbar, textvariable=self._prefill_var,
+            font=("Microsoft YaHei", 8), foreground="#888",
+        ).pack(side=tk.LEFT, padx=(10, 0))
 
         # 撤销清空按钮
         self._undo_btn = ttk.Button(
@@ -427,6 +459,32 @@ class App:
             command=self._clear_all,
         ).pack(side=tk.RIGHT)
 
+        # === 预制信息回显区（只读，带滚动条，由 _refresh_prefill_echo 控制显示）===
+        self._prefill_echo_frame = ttk.Frame(collect_frame)
+        self._prefill_echo = tk.Text(
+            self._prefill_echo_frame,
+            font=("Microsoft YaHei", 9),
+            wrap=tk.WORD,
+            height=2,
+            state="disabled",
+            bg="#F3F6FB",
+            fg="#333333",
+            relief=tk.FLAT,
+            borderwidth=0,
+            highlightthickness=1,
+            highlightbackground="#D5DDE8",
+            padx=8,
+            pady=6,
+        )
+        echo_vsb = ttk.Scrollbar(
+            self._prefill_echo_frame, orient=tk.VERTICAL,
+            command=self._prefill_echo.yview,
+        )
+        self._prefill_echo.configure(yscrollcommand=echo_vsb.set)
+        echo_vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        self._prefill_echo.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        # 不在此处 pack echo_frame；由 _refresh_prefill_echo 按需显示/隐藏
+
         # Treeview + 滚动条容器
         self._collect_tree_container = ttk.Frame(collect_frame)
         self._collect_tree_container.pack(fill=tk.BOTH, expand=True)
@@ -440,6 +498,8 @@ class App:
 
         # 初始化表格（默认三列）
         self._setup_collect_table(DEFAULT_HEADERS)
+
+        paned.add(collect_frame, weight=4)
 
         # === 底部按钮 ===
         bottom = ttk.Frame(self._root)
@@ -459,6 +519,9 @@ class App:
             bottom, textvariable=self._error_indicator_var,
             font=("Microsoft YaHei", 8), foreground="#ccc",
         ).pack(side=tk.RIGHT)
+
+        # 初始化预制信息状态
+        self._update_prefill_status()
 
     # ======================== 动态列管理 ========================
 
@@ -549,10 +612,14 @@ class App:
         self._count_var.set(f"已收集: {self._capture_count} 条")
         self._dirty = True
 
-    def _upload_template(self) -> None:
-        """上传 Excel 模版并更新表头。"""
+    def _import_template(self) -> None:
+        """导入 Excel 模版：表头作为表格列，数据行（至多 2 行）作为预制信息档案。
+
+        模版与预制信息合并：同一个 Excel 文件的表头即模版列，
+        若文件内附带数据行则同步作为预制信息（发送方信息）导入。
+        """
         file_path = filedialog.askopenfilename(
-            title="选择 Excel 模版",
+            title="选择模版 Excel（可含预制信息行）",
             filetypes=[
                 ("Excel 文件", "*.xlsx;*.xls"),
                 ("新格式", "*.xlsx"),
@@ -563,7 +630,7 @@ class App:
             return
 
         try:
-            headers = load_template_headers(file_path)
+            headers, profiles = load_template_and_prefill(file_path, max_prefill_rows=2)
         except ValueError as e:
             messagebox.showerror("模版加载失败", str(e))
             return
@@ -575,27 +642,327 @@ class App:
             messagebox.showerror("模版加载失败", "Excel 文件中未找到有效的表头行")
             return
 
+        prefill_note = ""
+        if profiles:
+            prefill_note = f"\n\n📥 检测到 {len(profiles)} 行预制信息，将在下一步确认。"
         if not messagebox.askyesno(
             "确认更换模版",
             f"将使用以下模版替换当前表格列:\n\n"
             f"文件: {os.path.basename(file_path)}\n"
             f"列数: {len(headers)} 列\n\n"
-            f"现有数据将自动适配新列（无法匹配的列留空）。\n继续？",
+            f"现有数据将自动适配新列（无法匹配的列留空）。{prefill_note}\n继续？",
         ):
             return
 
+        # 应用模版列
         self._reconfigure_columns(headers)
         self._has_template = True
         self._template_path = file_path
         self.config["template_path"] = file_path
+
+        # 应用预制信息（同一文件的数据行）
+        if profiles:
+            new_profiles = [
+                {"enabled": True, "label": self._derive_prefill_label(values, j),
+                 "values": values}
+                for j, values in enumerate(profiles)
+            ]
+            confirmed = self._open_prefill_dialog(headers, new_profiles)
+            self._prefill_profiles = (
+                self._sanitize_prefill(confirmed) if confirmed is not None else []
+            )
+        else:
+            self._prefill_profiles = []
+
+        self.config["prefill_profiles"] = self._prefill_profiles
         save_config(self.config)
+        self._update_prefill_status()
 
         matched = sum(1 for f in self._mapped_fields if f is not None)
-        self._flash_status(f"📂 模版已加载: {len(headers)} 列，{matched} 列可自动填充")
+        enabled_n = sum(1 for p in self._prefill_profiles if p.get("enabled"))
+        status = f"📂 模版已加载: {len(headers)} 列，{matched} 列可自动填充"
+        if profiles:
+            status += f"；预制信息 {enabled_n}/{len(self._prefill_profiles)} 档案启用"
+        self._flash_status(status)
         logger.info(
-            "模版已加载 | %s | %d 列 | %d 可映射",
-            file_path, len(headers), matched,
+            "模版已加载 | %s | %d 列 | %d 可映射 | %d 预制档案",
+            file_path, len(headers), matched, len(self._prefill_profiles),
         )
+
+    # ======================== 预制信息 ========================
+
+    @staticmethod
+    def _sanitize_prefill(profiles) -> list[dict]:
+        """清洗从配置加载的预制信息，保证结构一致。"""
+        out: list[dict] = []
+        for p in profiles or []:
+            if not isinstance(p, dict):
+                continue
+            values = p.get("values") or {}
+            if not isinstance(values, dict):
+                values = {}
+            cleaned: dict = {}
+            for k, v in values.items():
+                s = str(v).strip()
+                # 去掉 Excel 数值单元格遗留的 ".0"（15811111111.0 → 15811111111）
+                if s.endswith(".0") and s[:-2].isdigit():
+                    s = s[:-2]
+                cleaned[str(k)] = s
+            out.append({
+                "enabled": bool(p.get("enabled", False)),
+                "label": str(p.get("label", "")),
+                "values": cleaned,
+            })
+        return out
+
+    @staticmethod
+    def _derive_prefill_label(values: dict, index: int) -> str:
+        """从档案的关键字段推导一个简短标签，便于区分两个档案。"""
+        priority = [
+            "发货仓编码", "寄件人地址", "发货地址", "寄件地址",
+            "物品类型", "托寄物", "寄件人姓名", "商品", "时效产品",
+        ]
+        for key in priority:
+            v = (values or {}).get(key, "").strip()
+            if v:
+                return v[:12]
+        return f"档案{index + 1}"
+
+    def _prefill_headers(self) -> list[str]:
+        """返回当前预制信息档案的字段名（按出现顺序去重）。"""
+        headers: list[str] = []
+        for p in self._prefill_profiles:
+            for h in p.get("values", {}):
+                if h not in headers:
+                    headers.append(h)
+        return headers
+
+    def _open_prefill_dialog(self, headers: list[str], profiles: list[dict]):
+        """打开预制信息确认子窗口。返回确认后的 profiles 或 None（取消）。"""
+        # 只展示至少一个档案填写了值的列，减少窗口高度
+        headers = [
+            h for h in headers
+            if any((p.get("values") or {}).get(h, "").strip() for p in profiles)
+        ] or list(headers)
+
+        top = tk.Toplevel(self._root)
+        top.title("预制信息确认")
+        top.transient(self._root)
+        top.resizable(True, True)
+
+        pad = 12
+        ttk.Label(
+            top,
+            text="勾选要启用的档案，核对/编辑字段值，点击「确认」后应用到导出。",
+            font=("Microsoft YaHei", 9), foreground="#666",
+        ).pack(anchor=tk.W, padx=pad, pady=(pad, 6))
+
+        # 可滚动区域（Canvas + 垂直滚动条）
+        container = ttk.Frame(top)
+        container.pack(fill=tk.BOTH, expand=True, padx=pad, pady=4)
+
+        canvas = tk.Canvas(container, highlightthickness=0, borderwidth=0)
+        vsb = ttk.Scrollbar(container, orient=tk.VERTICAL, command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        body = ttk.Frame(canvas)
+        canvas.create_window((0, 0), window=body, anchor="nw")
+        body.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+
+        # 鼠标滚轮滚动
+        def _on_wheel(event):
+            canvas.yview_scroll(int(-event.delta / 120), "units")
+
+        def _bind_wheel(_e=None):
+            canvas.bind_all("<MouseWheel>", _on_wheel)
+
+        def _unbind_wheel(_e=None):
+            try:
+                canvas.unbind_all("<MouseWheel>")
+            except tk.TclError:
+                pass
+
+        canvas.bind("<Enter>", _bind_wheel)
+        canvas.bind("<Leave>", _unbind_wheel)
+
+        n_profiles = len(profiles)
+        enabled_vars = [
+            tk.BooleanVar(value=bool(p.get("enabled", False))) for p in profiles
+        ]
+        value_vars = [
+            {h: tk.StringVar(value=(p.get("values") or {}).get(h, "")) for h in headers}
+            for p in profiles
+        ]
+
+        # 表头行：字段 + 每个档案的勾选框
+        ttk.Label(body, text="字段", font=("Microsoft YaHei", 9, "bold")).grid(
+            row=0, column=0, sticky="w", padx=4, pady=3)
+        for j, p in enumerate(profiles):
+            label = p.get("label") or f"档案{j + 1}"
+            ttk.Checkbutton(
+                body, text=f"☑ {label}", variable=enabled_vars[j],
+            ).grid(row=0, column=1 + j, sticky="w", padx=4, pady=3)
+
+        # 字段行
+        for i, h in enumerate(headers, start=1):
+            ttk.Label(body, text=h).grid(row=i, column=0, sticky="w", padx=4, pady=2)
+            for j in range(n_profiles):
+                ttk.Entry(body, textvariable=value_vars[j][h], width=30).grid(
+                    row=i, column=1 + j, sticky="ew", padx=4, pady=2)
+
+        for j in range(n_profiles):
+            body.grid_columnconfigure(1 + j, weight=1)
+
+        result: dict = {"profiles": None}
+
+        def on_confirm():
+            out = []
+            for j, p in enumerate(profiles):
+                vals = {h: value_vars[j][h].get().strip() for h in headers}
+                out.append({
+                    "enabled": enabled_vars[j].get(),
+                    "label": p.get("label", ""),
+                    "values": vals,
+                })
+            result["profiles"] = out
+            _unbind_wheel()
+            top.destroy()
+
+        def on_cancel():
+            result["profiles"] = None
+            _unbind_wheel()
+            top.destroy()
+
+        btns = ttk.Frame(top)
+        btns.pack(fill=tk.X, padx=pad, pady=(6, pad))
+        ttk.Button(btns, text="确认", command=on_confirm).pack(side=tk.RIGHT, padx=(6, 0))
+        ttk.Button(btns, text="取消", command=on_cancel).pack(side=tk.RIGHT)
+
+        # 设定窗口尺寸：内容少则自适应，内容多则限高 + 滚动；并居中
+        top.update_idletasks()
+        req_w = max(460, top.winfo_reqwidth())
+        body_h = body.winfo_reqheight()
+        content_h = body_h + 130  # 顶部说明 + 底部按钮 + 边距
+        req_h = min(560, max(260, content_h))
+        x = self._root.winfo_x() + (self._root.winfo_width() - req_w) // 2
+        y = self._root.winfo_y() + (self._root.winfo_height() - req_h) // 2
+        top.geometry(f"{req_w}x{req_h}+{max(0, x)}+{max(0, y)}")
+
+        # 窗口可见后再抢焦点（避免部分平台 grab 报错）
+        try:
+            top.wait_visibility()
+            top.grab_set()
+        except tk.TclError:
+            pass
+
+        top.wait_window()
+        return result["profiles"]
+
+    def _edit_prefill(self) -> None:
+        """重新打开预制信息确认子窗口（不重新导入文件）。"""
+        if not self._prefill_profiles:
+            return
+        headers = self._prefill_headers()
+        confirmed = self._open_prefill_dialog(headers, self._prefill_profiles)
+        if confirmed is None:
+            return
+        self._prefill_profiles = self._sanitize_prefill(confirmed)
+        self.config["prefill_profiles"] = self._prefill_profiles
+        save_config(self.config)
+        self._update_prefill_status()
+        self._flash_status("✅ 预制信息已更新")
+
+    def _update_prefill_status(self) -> None:
+        """刷新预制信息状态标签、编辑按钮与回显区。"""
+        if not hasattr(self, "_prefill_var") or self._prefill_var is None:
+            return
+        if not self._prefill_profiles:
+            self._prefill_var.set("预制信息: 未导入")
+            if self._edit_prefill_btn is not None:
+                self._edit_prefill_btn.configure(state=tk.DISABLED)
+            self._refresh_prefill_echo()
+            return
+        if self._edit_prefill_btn is not None:
+            self._edit_prefill_btn.configure(state=tk.NORMAL)
+        enabled = [p for p in self._prefill_profiles if p.get("enabled")]
+        if enabled:
+            labels = " + ".join(p.get("label") or "?" for p in enabled)
+            self._prefill_var.set(f"预制: {labels}")
+        else:
+            self._prefill_var.set(
+                f"预制信息: {len(self._prefill_profiles)} 档案(均未启用)")
+        self._refresh_prefill_echo()
+
+    def _refresh_prefill_echo(self) -> None:
+        """把已确认的预制信息回显到「已收集文本」区域上方的只读框。"""
+        if self._prefill_echo is None or self._prefill_echo_frame is None:
+            return
+
+        if not self._prefill_profiles:
+            self._prefill_echo.configure(state="normal")
+            self._prefill_echo.delete("1.0", tk.END)
+            self._prefill_echo.configure(state="disabled")
+            self._prefill_echo_frame.pack_forget()
+            return
+
+        enabled = [p for p in self._prefill_profiles if p.get("enabled")]
+        lines = [
+            f"【预制信息】共 {len(self._prefill_profiles)} 个档案，已启用 {len(enabled)} 个"
+        ]
+        for i, p in enumerate(self._prefill_profiles, 1):
+            mark = "✅" if p.get("enabled") else "❌"
+            label = p.get("label") or f"档案{i}"
+            fields = [
+                f"{k}：{v}"
+                for k, v in (p.get("values") or {}).items()
+                if str(v).strip()
+            ]
+            lines.append(f"{mark} {label}  " + "｜".join(fields))
+
+        self._prefill_echo.configure(state="normal")
+        self._prefill_echo.delete("1.0", tk.END)
+        self._prefill_echo.insert("1.0", "\n".join(lines))
+        self._prefill_echo.configure(state="disabled")
+
+        # 自适应高度（上限 5 行，超出用滚动条滚动）
+        self._prefill_echo.configure(height=min(5, max(2, len(lines))))
+
+        if not self._prefill_echo_frame.winfo_ismapped():
+            self._prefill_echo_frame.pack(
+                fill=tk.X, pady=(0, 4), before=self._collect_tree_container
+            )
+
+    def _merge_prefill(self, rows: list[list], headers: Optional[list[str]] = None) -> list[list]:
+        """把已启用的预制信息合并到导出行（仅填充留空列，后勾选档案覆盖前者）。"""
+        if headers is None:
+            headers = self._template_headers
+        enabled = [p for p in self._prefill_profiles if p.get("enabled")]
+        if not enabled or not headers:
+            return rows
+
+        # 对每一列，取「最后一个启用档案」提供的非空值
+        prefill_by_col: dict[int, str] = {}
+        for col_idx, header in enumerate(headers):
+            for p in enabled:
+                v = (p.get("values") or {}).get(header, "")
+                if v:
+                    prefill_by_col[col_idx] = v
+
+        if not prefill_by_col:
+            return rows
+
+        merged: list[list] = []
+        for row in rows:
+            new_row = list(row)
+            for col_idx, v in prefill_by_col.items():
+                while len(new_row) <= col_idx:
+                    new_row.append("")
+                if not str(new_row[col_idx]).strip():
+                    new_row[col_idx] = v
+            merged.append(new_row)
+        return merged
 
     # ======================== 预览区操作 ========================
 
@@ -1153,16 +1520,34 @@ class App:
         else:
             messagebox.showinfo("提示", "收集区为空")
 
-    def _export_excel(self) -> None:
-        """导出收集表格数据为 Excel 文件。"""
-        rows = []
-        for item in self._collect_table.get_children():
-            values = self._collect_table.item(item, "values")
-            rows.append(values)
+    def _export_headers(self) -> tuple[list[str], list[Optional[str]]]:
+        """导出固定使用「多发货地标准模版」33列格式（与界面加载模版解耦）。"""
+        multi_path = resource_path("data/快递下单_多个发货地-标准模板V1.0A.xls")
+        try:
+            if os.path.isfile(multi_path):
+                headers = load_template_headers(multi_path)
+                if headers:
+                    return headers, map_headers_to_fields(headers)
+        except Exception as e:
+            logger.warning("读取多发货地标准模版失败，回退默认列: %s", e)
+        return DEFAULT_HEADERS, map_headers_to_fields(DEFAULT_HEADERS)
 
-        if not rows:
+    def _export_excel(self) -> None:
+        """导出：已收集文本(收件人) + 预制信息(寄件人) 拼接到「多发货地标准模版」列格式。"""
+        if not self._row_data:
             messagebox.showinfo("提示", "没有数据可导出")
             return
+
+        headers, mapped = self._export_headers()
+
+        # 从解析结果重建每行（收件人列有值，寄件人列留空）
+        rows = []
+        for data in self._row_data:
+            fields = data.get("fields", {})
+            rows.append(list(build_row_tuple(fields, mapped)))
+
+        # 合并预制信息（填充寄件人/发货仓/物品/时效/温层等空列）
+        rows = self._merge_prefill(rows, headers)
 
         # 弹出保存对话框
         default_name = f"产地快打_导出_{time.strftime('%Y%m%d_%H%M%S')}.xlsx"
@@ -1189,10 +1574,8 @@ class App:
         try:
             wb = openpyxl.Workbook()
             ws = wb.active
-            ws.title = "已收集文本"
+            ws.title = "产地快打导出"
 
-            # 表头（使用当前模版列）
-            headers = self._template_headers if self._template_headers else ["姓名", "手机号", "地址"]
             header_font = openpyxl.styles.Font(bold=True, size=11)
             header_fill = openpyxl.styles.PatternFill(
                 start_color="D9E1F2", end_color="D9E1F2", fill_type="solid"
@@ -1201,6 +1584,7 @@ class App:
                 horizontal="center", vertical="center"
             )
 
+            # 表头
             for col_idx, header in enumerate(headers, 1):
                 cell = ws.cell(row=1, column=col_idx, value=header)
                 cell.font = header_font
@@ -1213,7 +1597,7 @@ class App:
                     ws.cell(row=row_idx, column=col_idx, value=str(value))
 
             # 自动调整列宽
-            for col_idx, field_path in enumerate(self._mapped_fields, 1):
+            for col_idx, field_path in enumerate(mapped, 1):
                 width = compute_column_width(field_path)
                 # 转换为 Excel 字符宽度（px → char，大约 7px/char）
                 ws.column_dimensions[
@@ -1226,7 +1610,10 @@ class App:
             # 保存
             wb.save(file_path)
             self._flash_status(f"✅ 已导出 {len(rows)} 条记录到 Excel")
-            logger.info("Excel 导出完成 | %s | %d 条记录", file_path, len(rows))
+            logger.info(
+                "Excel 导出完成 | %s | %d 条记录 | %d 列",
+                file_path, len(rows), len(headers),
+            )
 
         except PermissionError:
             show_error_dialog(

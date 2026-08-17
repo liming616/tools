@@ -1,168 +1,126 @@
 {
   "version": 2,
-  "count": 5,
-  "saved_at": "2026-08-12 13:54:07",
+  "count": 1,
+  "saved_at": "2026-08-17 14:53:09",
   "columns": [
-    "姓名",
-    "手机号",
-    "地址"
+    "商家订单号",
+    "平台订单号",
+    "预制运单号",
+    "寄件人姓名",
+    "寄件人手机",
+    "寄件人座机",
+    "寄件人地址",
+    "寄件人公司",
+    "发货仓编码",
+    "收件人姓名",
+    "收件人手机",
+    "收件人座机",
+    "收件人地址",
+    "收件人公司",
+    "物品类型",
+    "总件数",
+    "商家箱号",
+    "预估总重量(KG)",
+    "面单备注",
+    "长",
+    "宽",
+    "高",
+    "时效产品",
+    "温层",
+    "付款方式",
+    "揽收拍照",
+    "保价金额（元）",
+    "签单返还",
+    "代收货款金额（元）",
+    "订单金额（元）",
+    "开箱验货",
+    "自定义信息",
+    "销售渠道"
   ],
   "mapped_fields": [
+    "",
+    "",
+    "",
+    "sender_name",
+    "sender_phone",
+    "sender_phone",
+    "sender_address",
+    "sender_company",
+    "sender_warehouse_code",
     "name",
     "phone",
-    "full_address"
+    "phone",
+    "full_address",
+    "company",
+    "items_text",
+    "",
+    "",
+    "",
+    "notes",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "raw",
+    ""
   ],
   "items": [
     {
       "fields": {
         "name": "",
         "phone": "",
-        "province": "",
-        "city": "",
-        "district": "",
-        "township": "宿迁市宿豫区顺河街道",
-        "road": "",
-        "community": "",
-        "building": "",
-        "unit": "",
-        "room": "",
-        "full_address": "江苏宿迁市宿豫区顺河街道",
-        "full_detail": "宿迁市宿豫区顺河街道江苏",
-        "items": [],
-        "items_text": "",
-        "notes": "",
-        "raw": "江苏宿迁市宿豫区顺河街道",
-        "company": "",
-        "qq": "",
-        "development_zone": "",
-        "landmark": ""
-      },
-      "raw": "江苏宿迁市宿豫区顺河街道"
-    },
-    {
-      "fields": {
-        "name": "",
-        "phone": "",
-        "province": "",
-        "city": "",
-        "district": "",
-        "township": "",
-        "road": "",
-        "community": "金色家园",
-        "building": "25栋",
-        "unit": "2单元",
-        "room": "804室",
-        "full_address": "金色家园25栋2单元804室金色家园25栋2单元804",
-        "full_detail": "金色家园25栋2单元804室金色家园25栋2单元804",
-        "items": [
-          {
-            "name": "金色家园25栋2单元804",
-            "spec": "",
-            "qty": 1,
-            "price": 0.0
-          }
-        ],
-        "items_text": "",
-        "notes": "",
-        "raw": "金色家园25栋2单元804",
-        "company": "",
-        "qq": "",
-        "development_zone": "",
-        "landmark": ""
-      },
-      "raw": "金色家园25栋2单元804"
-    },
-    {
-      "fields": {
-        "name": "",
-        "phone": "",
-        "province": "",
-        "city": "",
-        "district": "",
-        "township": "",
-        "road": "",
-        "community": "",
-        "building": "",
-        "unit": "",
-        "room": "",
-        "full_address": "元",
-        "full_detail": "元",
-        "items": [
-          {
-            "name": "元",
-            "spec": "",
-            "qty": 1,
-            "price": 0.0
-          }
-        ],
-        "items_text": "",
-        "notes": "",
-        "raw": "元",
-        "company": "",
-        "qq": "",
-        "development_zone": "",
-        "landmark": ""
-      },
-      "raw": "元"
-    },
-    {
-      "fields": {
-        "name": "",
-        "phone": "",
-        "province": "",
-        "city": "",
-        "district": "",
-        "township": "",
-        "road": "香港元朗宏业东街35号",
-        "community": "",
-        "building": "",
-        "unit": "",
-        "room": "21室",
-        "full_address": "香港元朗宏业东街35号丽新元朗中心21室-G楼12A",
-        "full_detail": "香港元朗宏业东街35号丽新元朗中心21室-G楼12A",
-        "items": [
-          {
-            "name": "香港元朗宏业东街21-35号丽新元朗中心G楼12A",
-            "spec": "",
-            "qty": 1,
-            "price": 0.0
-          }
-        ],
-        "items_text": "",
-        "notes": "",
-        "raw": "香港元朗宏业东街21-35号丽新元朗中心G楼12A",
-        "company": "",
-        "qq": "",
-        "development_zone": "",
-        "landmark": "丽新元朗中心"
-      },
-      "raw": "香港元朗宏业东街21-35号丽新元朗中心G楼12A"
-    },
-    {
-      "fields": {
-        "name": "李明",
-        "phone": "15811171111",
         "province": "北京",
         "city": "北京",
-        "district": "大兴区",
+        "district": "",
         "township": "",
         "road": "",
         "community": "",
-        "building": "2号楼",
+        "building": "",
         "unit": "",
         "room": "",
-        "full_address": "北京市大兴区亦庄经济开发区京东总部2号楼",
-        "full_detail": "亦庄经济开发区京东总部2号楼",
-        "items": [],
+        "full_address": "北京市大星期",
+        "full_detail": "大星期",
+        "items": [
+          {
+            "name": "北京市大星期",
+            "spec": "",
+            "qty": 1,
+            "price": 0.0
+          }
+        ],
         "items_text": "",
         "notes": "",
-        "raw": "北京市大兴区亦庄经济开发区京东总部2号楼  李明 15811171111",
+        "raw": "北京市大星期",
         "company": "",
         "qq": "",
-        "development_zone": "亦庄经济开发区",
-        "landmark": "京东总部"
+        "sender_name": "",
+        "sender_phone": "",
+        "sender_address": "",
+        "sender_company": "",
+        "sender_warehouse_code": "",
+        "development_zone": "",
+        "landmark": ""
       },
-      "raw": "北京市大兴区亦庄经济开发区京东总部2号楼  李明 15811171111"
+      "raw": "北京市大星期",
+      "confidence": 0.16,
+      "warnings": [
+        "姓名缺失",
+        "手机号缺失",
+        "地址可能不完整"
+      ],
+      "scores": {
+        "name": 0.0,
+        "phone": 0.0,
+        "address": 0.4
+      }
     }
   ]
 }

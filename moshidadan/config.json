@@ -4,13 +4,28 @@
     "WeChat"
   ],
   "poll_interval_ms": 400,
-  "auto_transfer": true,
+  "auto_transfer": false,
   "double_click_copy": true,
   "double_click_interval_ms": 500,
   "double_click_pos_tolerance": 20,
   "max_errors_per_minute": 10,
   "auto_save_interval_s": 120,
   "log_retention_days": 30,
-  "template_path": "C:\\Users\\liming\\Documents\\moshidadan\\data\\快递下单_同一发货地-标准模板V1.0A.xls",
+  "template_path": "C:/Users/liming/Documents/tools/moshidadan/data/快递下单_多个发货地-标准模板V1.0A.xls",
+  "prefill_profiles": [
+    {
+      "enabled": true,
+      "label": "北京市大兴区亦庄经济开发",
+      "values": {
+        "寄件人姓名": "李明",
+        "寄件人手机": "15811111111",
+        "寄件人地址": "北京市大兴区亦庄经济开发区京东总部2号楼",
+        "物品类型": "大桃",
+        "总件数": "1",
+        "时效产品": "生鲜标快",
+        "温层": "常温"
+      }
+    }
+  ],
   "version": 2
 }

@@ -1,0 +1,19 @@
+2026-08-17 14:50:06 | INFO     | ==================================================
+2026-08-17 14:50:06 | INFO     | 产地快打 启动 — 2026-08-17 14:50:06
+2026-08-17 14:50:06 | INFO     | 日志目录: C:\Users\liming\Documents\tools\moshidadan\logs
+2026-08-17 14:50:06 | INFO     | Python: 3.10.2 | 平台: win32
+2026-08-17 14:50:06 | INFO     | ==================================================
+2026-08-17 14:50:06 | INFO     | 启动检查通过
+2026-08-17 14:50:08 | INFO     | 模版加载成功 | C:\Users\liming\Documents\tools\moshidadan\data\快递下单_同一发货地-标准模板V1.0A.xls | 49 列表头
+2026-08-17 14:50:08 | INFO     | 已恢复模版 | C:\Users\liming\Documents\tools\moshidadan\data\快递下单_同一发货地-标准模板V1.0A.xls | 49 列
+2026-08-17 14:50:13 | INFO     | 用户拒绝恢复数据，备份已删除
+2026-08-17 14:50:13 | INFO     | 应用启动完成 | dc_enabled=True | poll_interval=400ms | dc_interval=500ms | auto_save=120s | max_errors/min=10
+[MouseHook] 钩子安装成功，开始监听...
+2026-08-17 14:50:13 | INFO     | 连击采集已启动 | 方式=WH_MOUSE_LL 钩子
+2026-08-17 14:50:24 | INFO     | 模版+预制信息读取成功 | C:/Users/liming/Documents/tools/moshidadan/data/快递下单_多个发货地-标准模板V1.0A.xls | 33 列 | 1 档案
+2026-08-17 14:50:36 | INFO     | 模版已加载 | C:/Users/liming/Documents/tools/moshidadan/data/快递下单_多个发货地-标准模板V1.0A.xls | 33 列 | 14 可映射 | 1 预制档案
+2026-08-17 14:51:42 | WARNING  | 连击采集失败（多次重试后剪贴板仍未变化）| prev_len=0 | fg=文件资源管理器
+2026-08-17 14:52:19 | INFO     | 转储成功 | #1 | name= | phone= | addr_len=6 | conf=0.16
+2026-08-17 14:52:19 | INFO     | 转储完成 | 插入=1 | 跳过=0 | 行数=1 | 累计=1
+2026-08-17 14:53:09 | INFO     | 正在关闭应用...
+2026-08-17 14:53:12 | INFO     | 应用已关闭 | 总共处理 1 条记录

@@ -19,11 +19,20 @@ DEFAULT_HEADERS = ["姓名", "手机号", "地址"]
 # field_path 支持点号分隔的嵌套路径（如 "addr.province"）
 
 FIELD_DESCRIPTORS: list[tuple[str, str, list[str]]] = [
-    ("name",           "姓名",     ["收件人姓名", "寄件人姓名", "收货人", "收件人",
-                                     "客户", "联系人", "名字", "下单人", "姓名"]),
-    ("phone",          "手机号",   ["收件人手机", "寄件人手机", "收件人座机", "寄件人座机",
-                                     "手机号", "联系电话", "联系方式", "电话", "手机",
-                                     "座机", "号码"]),
+    # ---- 寄件人 / 发货方（来自预制信息，订单解析不填充）----
+    ("sender_name",           "寄件人姓名", ["寄件人姓名", "发货人姓名", "发件人姓名"]),
+    ("sender_phone",          "寄件人手机", ["寄件人手机", "寄件人座机", "发货人手机",
+                                             "发件人手机", "发货人座机", "发货人电话"]),
+    ("sender_address",        "寄件人地址", ["寄件人地址", "发货人地址", "发件人地址",
+                                             "发货地址", "寄件地址"]),
+    ("sender_company",        "寄件人公司", ["寄件人公司", "发货人公司", "发件人公司"]),
+    ("sender_warehouse_code", "发货仓编码", ["发货仓编码", "仓库编码", "发货仓", "仓库编号"]),
+
+    # ---- 收件人 / 收货方（来自订单解析）----
+    ("name",           "姓名",     ["收件人姓名", "收货人", "收件人", "客户",
+                                     "联系人", "名字", "下单人", "姓名"]),
+    ("phone",          "手机号",   ["收件人手机", "收件人座机", "手机号", "联系电话",
+                                     "联系方式", "电话", "手机", "座机", "号码"]),
     ("province",       "省",       ["省份", "省"]),
     ("city",           "市",       ["城市", "市"]),
     ("district",       "区/县",    ["区县", "地区", "区域", "区", "县"]),
@@ -33,14 +42,14 @@ FIELD_DESCRIPTORS: list[tuple[str, str, list[str]]] = [
     ("building",       "栋/楼",    ["号楼", "栋", "幢", "座"]),
     ("unit",           "单元",     ["单元", "门"]),
     ("room",           "室",       ["房号", "房间", "室"]),
-    ("full_address",   "地址",     ["收件人地址", "寄件人地址", "收货地址", "收件地址",
+    ("full_address",   "地址",     ["收件人地址", "收货地址", "收件地址",
                                      "邮寄地址", "送达地址", "详细地址", "具体地址",
                                      "地址"]),
     ("full_detail",    "详细地址",  ["详细地址", "具体地址"]),
     ("items_text",     "商品",     ["物品类型", "商品名称", "货品", "货物名称"]),
     ("notes",          "备注",     ["面单备注", "订单备注", "备注", "留言", "说明"]),
     ("raw",            "原始文本",  ["原文", "原始文本", "完整信息", "自定义信息"]),
-    ("company",        "公司",     ["收件人公司", "寄件人公司", "公司", "单位", "企业"]),
+    ("company",        "公司",     ["收件人公司", "公司", "单位", "企业"]),
     ("qq",             "QQ号",     ["QQ号", "QQ"]),
 ]
 
@@ -123,10 +132,134 @@ def _safe_cell(value) -> str:
     """安全转换单元格值为字符串。"""
     if value is None:
         return ""
+    # Excel 数值单元格读出来是 float，整数统一转 int 去掉 ".0"（如 15811111111.0 → 15811111111）
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
     s = str(value).strip()
     # 去掉 Excel 常见的前后空白和换行
     s = s.replace('\n', ' ').replace('\r', '')
     return s
+
+
+# ======================== 预制信息读取 ========================
+
+
+def load_prefill_rows(filepath: str, max_rows: int = 2) -> tuple[list[str], list[dict]]:
+    """
+    读取预制信息 Excel：表头 + 至多 max_rows 行数据。
+
+    与模版读取共用同一套表头探测逻辑（首行/次行取非空更多者）。
+    每一行数据作为一个「档案」，返回 {"表头": "值", ...} 的字典列表。
+
+    Returns:
+        (headers, rows)
+    Raises:
+        ValueError: 文件无效 / 无表头 / 无数据行
+    """
+    if not os.path.exists(filepath):
+        raise ValueError(f"文件不存在: {filepath}")
+
+    ext = os.path.splitext(filepath)[1].lower()
+    if ext in (".xlsx", ".xlsm"):
+        rows = _load_xlsx_rows(filepath)
+    elif ext == ".xls":
+        rows = _load_xls_rows(filepath)
+    else:
+        raise ValueError(f"不支持的文件格式: {ext}，仅支持 .xlsx / .xls")
+
+    headers, profiles = _extract_prefill(rows, max_rows)
+    logger.info("预制信息读取成功 | %s | %d 列 | %d 档案", filepath, len(headers), len(profiles))
+    return headers, profiles
+
+
+def _load_xlsx_rows(filepath: str) -> list[list[str]]:
+    """读取 .xlsx 全部行（含表头与数据）。"""
+    import openpyxl
+    wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
+    ws = wb.active
+    out = [[_safe_cell(c) for c in row] for row in ws.iter_rows(values_only=True)]
+    wb.close()
+    return out
+
+
+def _load_xls_rows(filepath: str) -> list[list[str]]:
+    """读取 .xls 全部行（含表头与数据）。"""
+    import xlrd
+    wb = xlrd.open_workbook(filepath, encoding_override='gb18030')
+    ws = wb.sheet_by_index(0)
+    out = [[_safe_cell(ws.cell_value(r, c)) for c in range(ws.ncols)]
+           for r in range(ws.nrows)]
+    return out
+
+
+def _extract_prefill(rows: list[list[str]], max_rows: int,
+                     allow_empty: bool = False) -> tuple[list[str], list[dict]]:
+    """从原始行中提取表头与至多 max_rows 个档案。
+
+    allow_empty=True 时，无数据行不报错，返回空档案列表（用于「仅模版」场景）。
+    """
+    if not rows:
+        raise ValueError("Excel 文件为空")
+
+    # 表头行：首行/次行取非空更多者
+    header_idx = 0
+    if len(rows) >= 2:
+        c0 = sum(1 for v in rows[0] if v)
+        c1 = sum(1 for v in rows[1] if v)
+        if c1 > c0:
+            header_idx = 1
+
+    header_row = rows[header_idx]
+    cols = [(i, h) for i, h in enumerate(header_row) if h]
+    if not cols:
+        raise ValueError("预制信息Excel中未找到有效的表头")
+
+    headers = [h for _, h in cols]
+    col_idx_list = [i for i, _ in cols]
+
+    profiles: list[dict] = []
+    for r in rows[header_idx + 1:]:
+        if len(profiles) >= max_rows:
+            break
+        values = {}
+        for ci, h in zip(col_idx_list, headers):
+            values[h] = r[ci] if ci < len(r) else ""
+        if any(values.values()):
+            profiles.append(values)
+
+    if not profiles and not allow_empty:
+        raise ValueError("预制信息Excel中未找到数据行")
+
+    return headers, profiles
+
+
+def load_template_and_prefill(filepath: str, max_prefill_rows: int = 2) -> tuple[list[str], list[dict]]:
+    """
+    一次性读取模版 Excel：表头（作为模版列）+ 至多 max_prefill_rows 行预制数据。
+
+    与 load_template_headers 共用同一套表头探测逻辑；数据行作为「预制信息档案」返回。
+    无数据行时返回空档案列表（不报错），供「仅模版」场景使用。
+
+    Returns:
+        (headers, profiles) — profiles 为 [{"表头": "值", ...}, ...]
+    Raises:
+        ValueError: 文件无效 / 无表头
+    """
+    if not os.path.exists(filepath):
+        raise ValueError(f"文件不存在: {filepath}")
+
+    ext = os.path.splitext(filepath)[1].lower()
+    if ext in (".xlsx", ".xlsm"):
+        rows = _load_xlsx_rows(filepath)
+    elif ext == ".xls":
+        rows = _load_xls_rows(filepath)
+    else:
+        raise ValueError(f"不支持的文件格式: {ext}，仅支持 .xlsx / .xls")
+
+    headers, profiles = _extract_prefill(rows, max_prefill_rows, allow_empty=True)
+    logger.info("模版+预制信息读取成功 | %s | %d 列 | %d 档案",
+                filepath, len(headers), len(profiles))
+    return headers, profiles
 
 
 # ======================== 字段映射 ========================
@@ -246,6 +379,9 @@ def empty_fields_dict() -> dict:
         "full_address": "", "full_detail": "",
         "items": [], "items_text": "", "notes": "", "raw": "",
         "company": "", "qq": "",
+        # 寄件人 / 发货方（来自预制信息）
+        "sender_name": "", "sender_phone": "", "sender_address": "",
+        "sender_company": "", "sender_warehouse_code": "",
         # 地址解析特有字段（备用）
         "development_zone": "", "landmark": "",
     }
@@ -257,10 +393,13 @@ def compute_column_width(field_path: Optional[str]) -> int:
     if field_path is None:
         return 70
 
-    wide_fields = {"full_address", "full_detail", "items_text", "notes", "raw"}
+    wide_fields = {"full_address", "full_detail", "items_text", "notes", "raw",
+                   "sender_address"}
     medium_fields = {"name", "phone", "province", "city", "district",
                      "township", "road", "community", "landmark",
-                     "building", "unit", "room", "company"}
+                     "building", "unit", "room", "company",
+                     "sender_name", "sender_phone", "sender_company",
+                     "sender_warehouse_code"}
 
     if field_path in wide_fields:
         return 250
