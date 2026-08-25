@@ -1,7 +1,7 @@
 {
   "version": 2,
   "count": 1,
-  "saved_at": "2026-08-17 14:53:09",
+  "saved_at": "2026-08-25 18:32:58",
   "columns": [
     "商家订单号",
     "平台订单号",
@@ -75,30 +75,31 @@
   "items": [
     {
       "fields": {
-        "name": "",
-        "phone": "",
+        "name": "李明",
+        "phone": "15811111111",
         "province": "北京",
         "city": "北京",
-        "district": "",
+        "district": "大兴区",
         "township": "",
         "road": "",
         "community": "",
-        "building": "",
+        "building": "2号楼",
         "unit": "",
         "room": "",
-        "full_address": "北京市大星期",
-        "full_detail": "大星期",
+        "full_address": "北京市大兴区亦庄经济开发区京东总部2号楼",
+        "full_detail": "亦庄经济开发区京东总部2号楼",
         "items": [
           {
-            "name": "北京市大星期",
+            "name": "大桃",
             "spec": "",
-            "qty": 1,
-            "price": 0.0
+            "qty": 2,
+            "price": 0.0,
+            "raw": "两箱大桃"
           }
         ],
         "items_text": "",
         "notes": "",
-        "raw": "北京市大星期",
+        "raw": "北京市大兴区亦庄经济开发区京东总部2号楼 15811111111 李明 两箱大桃",
         "company": "",
         "qq": "",
         "sender_name": "",
@@ -106,20 +107,16 @@
         "sender_address": "",
         "sender_company": "",
         "sender_warehouse_code": "",
-        "development_zone": "",
-        "landmark": ""
+        "development_zone": "亦庄经济开发区",
+        "landmark": "京东总部"
       },
-      "raw": "北京市大星期",
-      "confidence": 0.16,
-      "warnings": [
-        "姓名缺失",
-        "手机号缺失",
-        "地址可能不完整"
-      ],
+      "raw": "北京市大兴区亦庄经济开发区京东总部2号楼 15811111111 李明 两箱大桃",
+      "confidence": 0.935,
+      "warnings": [],
       "scores": {
-        "name": 0.0,
-        "phone": 0.0,
-        "address": 0.4
+        "name": 0.9,
+        "phone": 0.95,
+        "address": 0.95
       }
     }
   ]

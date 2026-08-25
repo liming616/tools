@@ -69,6 +69,22 @@ VK_LBUTTON = 0x01
 
 # ======================== 主应用 ========================
 
+# 预制信息必填列（寄件人姓名/手机/地址 + 时效产品），保存时为空则卡控
+REQUIRED_PREFILL_HEADERS = ["寄件人姓名", "寄件人手机", "寄件人地址", "时效产品"]
+
+
+def _is_receiver_field(field_path: Optional[str]) -> bool:
+    """是否在收集列表显示该列。
+
+    仅显示「收件人（从微信文本解析）」字段；寄件人/预制字段（sender_*）
+    与未映射列（发货仓、时效、温层、订单号等）一律隐藏，导出时再拼回。
+    """
+    if not field_path:
+        return False
+    if field_path.startswith("sender_"):
+        return False
+    return True
+
 
 class App:
     def __init__(self, config: dict):
@@ -122,12 +138,15 @@ class App:
 
         # ---- 收集表格状态 ----
         self._count_var: Optional[tk.StringVar] = None
+        self._stats_var: Optional[tk.StringVar] = None
         self._collect_table: Optional[ttk.Treeview] = None
 
         # ---- 动态列 & 模版 ----
         self._row_data: list[dict] = []              # [{"fields": {...}, "raw": str}, ...]
-        self._template_headers: list[str] = []        # 当前列标题
-        self._mapped_fields: list[Optional[str]] = [] # 每列对应的 field_path
+        self._template_headers: list[str] = []        # 当前列标题（完整模版列）
+        self._mapped_fields: list[Optional[str]] = [] # 每列对应的 field_path（完整）
+        self._visible_headers: list[str] = []          # 列表中实际显示的列标题
+        self._visible_fields: list[Optional[str]] = [] # 可见列对应的 field_path
         self._column_ids: list[str] = []              # "col0", "col1", ...
         self._has_template: bool = False
         self._template_path: Optional[str] = None
@@ -354,7 +373,7 @@ class App:
             preview_body,
             font=("Microsoft YaHei", 10),
             wrap=tk.WORD,
-            height=6,
+            height=3,
             state="normal",             # 显式声明可编辑
             insertbackground="#1a1a1a",  # 光标颜色（浅色背景上更醒目）
             bg="#FFFDE7",
@@ -411,6 +430,16 @@ class App:
         )
         self._auto_cb.pack(side=tk.RIGHT, padx=(0, 12))
 
+        # 启动恢复上次数据开关
+        self._restore_var = tk.BooleanVar(
+            value=self.config.get("auto_restore_data", True)
+        )
+        self._restore_cb = ttk.Checkbutton(
+            preview_btns, text="💾 启动恢复上次数据", variable=self._restore_var,
+            command=self._toggle_restore,
+        )
+        self._restore_cb.pack(side=tk.RIGHT, padx=(0, 12))
+
         paned.add(preview_frame, weight=3)
 
         # === 收集区 ===
@@ -455,6 +484,11 @@ class App:
         self._undo_btn.configure(state=tk.DISABLED)
 
         ttk.Button(
+            collect_toolbar, text="🗑 删除选中",
+            command=self._delete_selected_rows,
+        ).pack(side=tk.RIGHT, padx=(0, 6))
+
+        ttk.Button(
             collect_toolbar, text="🗑 清空收集区",
             command=self._clear_all,
         ).pack(side=tk.RIGHT)
@@ -491,6 +525,16 @@ class App:
         self._collect_tree_container.grid_rowconfigure(0, weight=1)
         self._collect_tree_container.grid_columnconfigure(0, weight=1)
 
+        # 底部统计字段：显示当前已收集行数
+        self._stats_var = tk.StringVar(value="已收集行数: 0")
+        ttk.Label(
+            collect_frame,
+            textvariable=self._stats_var,
+            font=("Microsoft YaHei", 9),
+            foreground="#555",
+            anchor=tk.W,
+        ).pack(fill=tk.X, pady=(4, 0))
+
         # 编辑状态
         self._edit_entry: Optional[tk.Entry] = None
         self._edit_item: Optional[str] = None
@@ -523,30 +567,59 @@ class App:
         # 初始化预制信息状态
         self._update_prefill_status()
 
+    def _update_count_display(self) -> None:
+        """同步顶部计数与底部统计字段（当前已收集行数）。"""
+        self._count_var.set(f"已收集: {self._capture_count} 条")
+        self._stats_var.set(f"已收集行数: {self._capture_count}")
+
     # ======================== 动态列管理 ========================
 
     def _setup_collect_table(self, headers: list[str]) -> None:
         """根据 headers 构建 Treeview 表格。"""
-        # 映射表头到字段
+        # 映射表头到字段（完整模版列）
         self._template_headers = headers
         self._mapped_fields = map_headers_to_fields(headers)
-        n_cols = len(headers)
 
-        # 生成列 ID 和宽度
-        self._column_ids = [f"col{i}" for i in range(n_cols)]
-        col_widths = [compute_column_width(f) for f in self._mapped_fields]
+        # 可见列：仅显示收件人（解析）字段，隐藏寄件人/预制/未映射列
+        visible = [
+            (h, f) for h, f in zip(headers, self._mapped_fields)
+            if _is_receiver_field(f)
+        ]
+        self._visible_headers = [h for h, _ in visible]
+        self._visible_fields = [f for _, f in visible]
+        n_cols = len(self._visible_headers)
+
+        # 生成列 ID 和宽度（数据列 = 序号列 seq + 可见模版列）
+        self._column_ids = ["seq"] + [f"col{i}" for i in range(n_cols)]
+        col_widths = [compute_column_width(f) for f in self._visible_fields]
 
         # 清理容器中的旧控件
         for w in self._collect_tree_container.winfo_children():
             w.destroy()
 
+        # 放大表格字体（含复选框 glyph），行高由 rowheight 决定，不受影响
+        _style = ttk.Style()
+        _style.configure("Treeview", font=("Microsoft YaHei", 10))
+
         # 创建 Treeview
         self._collect_table = ttk.Treeview(
             self._collect_tree_container,
             columns=self._column_ids,
-            show="headings",
-            selectmode="browse",
-            height=10,
+            show="tree headings",
+            selectmode="extended",
+            height=6,
+        )
+
+        # 复选框列（#0 树列）：标题位放置全选框，行内显示 ☐/☑，不参与数据列
+        self._collect_table.heading("#0", text="☐")
+        self._collect_table.column(
+            "#0", width=44, minwidth=40, anchor=tk.CENTER, stretch=False,
+        )
+
+        # 序号列
+        self._collect_table.heading("seq", text="序号")
+        self._collect_table.column(
+            "seq", width=52, minwidth=40, anchor=tk.CENTER, stretch=False,
         )
 
         # 低置信度行高亮标签
@@ -554,8 +627,8 @@ class App:
             "low_confidence", background="#FFF3CD",
         )
 
-        for i, (col_id, header, width) in enumerate(
-            zip(self._column_ids, headers, col_widths)
+        for col_id, header, width in zip(
+            self._column_ids[1:], self._visible_headers, col_widths
         ):
             self._collect_table.heading(col_id, text=header)
             anchor = tk.W if width >= 200 else tk.CENTER
@@ -584,6 +657,7 @@ class App:
         self._collect_table.bind("<Button-3>", self._on_collect_table_right_click)
         self._collect_table.bind("<Double-1>", self._on_collect_table_double_click_edit)
         self._collect_table.bind("<Button-1>", self._on_collect_table_single_click)
+        self._collect_table.bind("<<TreeviewSelect>>", self._on_select_changed)
 
         # 恢复编辑状态
         self._edit_entry = None
@@ -609,7 +683,7 @@ class App:
 
         # 更新计数
         self._capture_count = len(self._row_data)
-        self._count_var.set(f"已收集: {self._capture_count} 条")
+        self._update_count_display()
         self._dirty = True
 
     def _import_template(self) -> None:
@@ -745,6 +819,11 @@ class App:
             if any((p.get("values") or {}).get(h, "").strip() for p in profiles)
         ] or list(headers)
 
+        # 必填列始终展示（即使当前为空），便于填写与校验
+        for req in REQUIRED_PREFILL_HEADERS:
+            if req not in headers:
+                headers.append(req)
+
         top = tk.Toplevel(self._root)
         top.title("预制信息确认")
         top.transient(self._root)
@@ -818,6 +897,23 @@ class App:
         result: dict = {"profiles": None}
 
         def on_confirm():
+            # 必填校验：启用的档案缺失必填字段时卡控，不允许保存
+            missing = []
+            for j, p in enumerate(profiles):
+                if not enabled_vars[j].get():
+                    continue
+                label = p.get("label") or f"档案{j + 1}"
+                for req in REQUIRED_PREFILL_HEADERS:
+                    if req in value_vars[j] and not value_vars[j][req].get().strip():
+                        missing.append(f"{label}：{req}")
+            if missing:
+                messagebox.showwarning(
+                    "必填项缺失",
+                    "以下必填字段为空，请填写后再确认：\n\n" + "\n".join(missing),
+                    parent=top,
+                )
+                return
+
             out = []
             for j, p in enumerate(profiles):
                 vals = {h: value_vars[j][h].get().strip() for h in headers}
@@ -1125,14 +1221,11 @@ class App:
         # 4. 置信度评分
         overall, warnings_list, scores = score_fields(fields)
 
-        # 5. 去重检测
-        if self._is_duplicate(fields):
-            logger.debug("转储跳过重复行 | %s", line[:40])
-            return False, [], 0.0
-
-        # 6. 构建显示行并插入
-        values = build_row_tuple(fields, self._mapped_fields)
-        item = self._collect_table.insert("", tk.END, values=values)
+        # 5. 构建显示行并插入（不再去重，重复文本也追加到列表）
+        values = build_row_tuple(fields, self._visible_fields)
+        seq = str(len(self._row_data) + 1)
+        item = self._collect_table.insert("", tk.END, values=(seq, *values))
+        self._collect_table.item(item, text="☐")
         if is_low_confidence(overall, scores):
             self._collect_table.item(item, tags=("low_confidence",))
         self._row_data.append({
@@ -1144,7 +1237,7 @@ class App:
         })
 
         self._capture_count += 1
-        self._count_var.set(f"已收集: {self._capture_count} 条")
+        self._update_count_display()
         self._dirty = True
 
         logger.info(
@@ -1153,26 +1246,6 @@ class App:
             len(fields["full_address"]), overall,
         )
         return True, warnings_list, overall
-
-    def _is_duplicate(self, fields: dict) -> bool:
-        """检查是否与已有记录重复（基于 raw 文本 + 姓名+电话+地址）。"""
-        raw = fields.get("raw", "")
-        name = fields.get("name", "")
-        phone = fields.get("phone", "")
-        addr = fields.get("full_address", "")
-
-        for data in self._row_data:
-            existing = data.get("fields", {})
-            # 原始文本完全一致
-            if raw and existing.get("raw", "") == raw:
-                return True
-            # 或 姓名+电话+地址 完全一致
-            if (name and phone and addr
-                    and existing.get("name") == name
-                    and existing.get("phone") == phone
-                    and existing.get("full_address") == addr):
-                return True
-        return False
 
     def _refresh_row_confidence(self, idx: int, item: str) -> None:
         """重新评分一行并刷新其高亮标签（用于编辑后、恢复数据后）。"""
@@ -1192,8 +1265,10 @@ class App:
 
     def _insert_restored_row(self, data: dict, fields: dict) -> None:
         """恢复/重建表格时插入一行，并按置信度刷新高亮。"""
-        values = build_row_tuple(fields, self._mapped_fields)
-        item = self._collect_table.insert("", tk.END, values=values)
+        values = build_row_tuple(fields, self._visible_fields)
+        seq = str(len(self._row_data) + 1)
+        item = self._collect_table.insert("", tk.END, values=(seq, *values))
+        self._collect_table.item(item, text="☐")
         self._row_data.append(data)
         self._refresh_row_confidence(len(self._row_data) - 1, item)
 
@@ -1202,6 +1277,16 @@ class App:
         save_config(self.config)
         if self._auto_var.get():
             self._flash_status("🔄 自动转储已开启")
+
+    def _toggle_restore(self) -> None:
+        """切换启动恢复上次数据开关。"""
+        enabled = self._restore_var.get()
+        self.config["auto_restore_data"] = enabled
+        save_config(self.config)
+        if enabled:
+            self._flash_status("💾 已开启：启动时自动恢复上次数据")
+        else:
+            self._flash_status("已关闭：启动时不再恢复上次数据")
 
     # ======================== 全局连击复制 ========================
 
@@ -1478,7 +1563,7 @@ class App:
 
             self._row_data = []
             self._capture_count = 0
-            self._count_var.set("已收集: 0 条")
+            self._update_count_display()
             self._undo_btn.configure(state=tk.NORMAL)
             self._dirty = True
             logger.info("收集区已清空 | %d 条备份可撤销", len(self._undo_data))
@@ -1495,7 +1580,7 @@ class App:
 
         count = len(self._undo_data)
         self._capture_count = count
-        self._count_var.set(f"已收集: {count} 条")
+        self._update_count_display()
         self._undo_btn.configure(state=tk.DISABLED)
         self._undo_data = []
         self._dirty = True
@@ -1507,7 +1592,8 @@ class App:
         rows = []
         for item in self._collect_table.get_children():
             values = self._collect_table.item(item, "values")
-            rows.append("\t".join(str(v) for v in values))
+            # 跳过首列序号
+            rows.append("\t".join(str(v) for v in values[1:]))
         if rows:
             text = "\n".join(rows)
             if safe_write_clipboard(text):
@@ -1636,7 +1722,9 @@ class App:
         item = self._collect_table.identify_row(event.y)
         if not item:
             return
-        self._collect_table.selection_set(item)
+        # 若右键行不在当前选中集合中，则单独选中它；否则保留多选以便批量删除
+        if item not in self._collect_table.selection():
+            self._collect_table.selection_set(item)
 
         # 识别右键所在的列
         clicked_col = self._collect_table.identify_column(event.x)
@@ -1648,10 +1736,10 @@ class App:
         )
         menu.add_separator()
 
-        # 动态生成列映射
+        # 动态生成列映射（#1 为序号列，#2 起为可见列）
         col_map = {}
-        for i, header in enumerate(self._template_headers):
-            col_map[f"#{i + 1}"] = header
+        for i, header in enumerate(self._visible_headers):
+            col_map[f"#{i + 2}"] = header
         for col_id, label in col_map.items():
             menu.add_command(
                 label=f"复制{label}",
@@ -1664,9 +1752,11 @@ class App:
             command=lambda c=clicked_col, i=item: self._edit_cell(i, c),
         )
         menu.add_separator()
+        sel = self._collect_table.selection()
+        delete_label = f"🗑 删除选中({len(sel)}行)" if len(sel) > 1 else "🗑 删除此行"
         menu.add_command(
-            label="🗑 删除此行",
-            command=lambda: self._delete_collect_row(item),
+            label=delete_label,
+            command=self._delete_selected_rows,
         )
 
         try:
@@ -1684,10 +1774,30 @@ class App:
             self._edit_cell(item, col)
 
     def _on_collect_table_single_click(self, event) -> None:
-        """单击表格其他位置 → 保存当前编辑。"""
+        """单击处理：勾选列切换选中；其他位置保存当前编辑。"""
+        # 标题位全选框点击
+        if self._collect_table.identify_region(event.x, event.y) == "heading":
+            if self._collect_table.identify_column(event.x) == "#0":
+                self._toggle_select_all()
+                return "break"
+            return
+
+        col = self._collect_table.identify_column(event.x)
+
+        # 勾选列（#0）点击：切换该行选中状态，不影响其他行
+        if col == "#0":
+            item = self._collect_table.identify_row(event.y)
+            if item:
+                if item in self._collect_table.selection():
+                    self._collect_table.selection_remove(item)
+                else:
+                    self._collect_table.selection_add(item)
+                self._renumber_rows()
+                return "break"
+
+        # 原有：单击表格其他位置 → 保存当前编辑
         if self._edit_entry is not None:
             item = self._collect_table.identify_row(event.y)
-            col = self._collect_table.identify_column(event.x)
             # 如果点击的是正在编辑的同一个单元格，不处理
             if item == self._edit_item and col == f"#{self._edit_col + 1}":
                 return
@@ -1700,6 +1810,9 @@ class App:
 
         col_index = int(col_id.replace("#", "")) - 1
         if col_index < 0:
+            return
+        # 序号列不可编辑
+        if col_index == 0:
             return
 
         # 获取单元格的当前值和位置
@@ -1757,8 +1870,8 @@ class App:
                         idx = children.index(self._edit_item)
                         if 0 <= idx < len(self._row_data):
                             field_path = (
-                                self._mapped_fields[self._edit_col]
-                                if self._edit_col < len(self._mapped_fields) else None
+                                self._visible_fields[self._edit_col - 1]
+                                if 0 < self._edit_col <= len(self._visible_fields) else None
                             )
                             if field_path:
                                 self._row_data[idx]["fields"][field_path] = new_value
@@ -1796,27 +1909,83 @@ class App:
     def _copy_collect_row(self, item: str) -> None:
         """复制收集表格整行。"""
         values = self._collect_table.item(item, "values")
-        text = "\t".join(str(v) for v in values)
+        text = "\t".join(str(v) for v in values[1:])
         if safe_write_clipboard(text):
             self._flash_status("📋 已复制整行")
         else:
             self._flash_status("⚠️ 复制失败，请重试")
 
     def _delete_collect_row(self, item: str) -> None:
-        """删除收集表格中一行。"""
-        # 找到 item 在 _row_data 中的索引并删除
-        children = self._collect_table.get_children()
-        try:
-            idx = list(children).index(item)
-            if 0 <= idx < len(self._row_data):
-                self._row_data.pop(idx)
-        except (ValueError, IndexError):
-            pass
+        """删除收集表格中一行（保留兼容，单行删除）。"""
+        self._delete_rows([item])
 
-        self._collect_table.delete(item)
-        self._capture_count = max(0, self._capture_count - 1)
-        self._count_var.set(f"已收集: {self._capture_count} 条")
+    def _delete_selected_rows(self) -> None:
+        """删除当前选中的所有行（支持 Ctrl/Shift 多选批量删除）。"""
+        selected = self._collect_table.selection()
+        if not selected:
+            self._flash_status("⚠️ 请先选中要删除的行（可 Ctrl/Shift 多选）")
+            return
+        self._delete_rows(list(selected))
+
+    def _delete_rows(self, items) -> None:
+        """批量删除指定行（items 为 Treeview iid 可迭代对象）。"""
+        items = set(items)
+        if not items:
+            return
+
+        # 单行删除沿用原静默行为；多行删除需确认
+        if len(items) > 1:
+            if not messagebox.askyesno(
+                "确认删除",
+                f"确定删除选中的 {len(items)} 条记录吗？",
+            ):
+                return
+
+        children = self._collect_table.get_children()
+        remove_idx = {i for i, it in enumerate(children) if it in items}
+        self._row_data = [
+            d for i, d in enumerate(self._row_data) if i not in remove_idx
+        ]
+
+        for it in items:
+            self._collect_table.delete(it)
+
+        self._capture_count = len(self._row_data)
+        self._update_count_display()
+        self._renumber_rows()
         self._dirty = True
+        logger.info("删除 %d 条 | 剩余 %d 条", len(items), self._capture_count)
+
+    def _renumber_rows(self) -> None:
+        """刷新复选框列（#0）与序号列（seq）：行号连续 + 勾选状态同步 + 表头全选框同步。"""
+        sel = set(self._collect_table.selection())
+        children = self._collect_table.get_children()
+        for i, item in enumerate(children, start=1):
+            mark = "☑" if item in sel else "☐"
+            self._collect_table.item(item, text=mark)
+            values = list(self._collect_table.item(item, "values"))
+            if values:
+                values[0] = str(i)
+                self._collect_table.item(item, values=tuple(values))
+
+        # 表头全选框：全选时显示 ☑，否则 ☐
+        all_sel = "☑" if children and len(sel) == len(children) else "☐"
+        self._collect_table.heading("#0", text=all_sel)
+
+    def _toggle_select_all(self) -> None:
+        """标题位全选框：全选 / 取消全选。"""
+        children = self._collect_table.get_children()
+        if not children:
+            return
+        if len(self._collect_table.selection()) == len(children):
+            self._collect_table.selection_remove(children)
+        else:
+            self._collect_table.selection_set(children)
+        self._renumber_rows()
+
+    def _on_select_changed(self, _event=None) -> None:
+        """选择变化时刷新复选框显示（支持 Ctrl/Shift 多选同步）。"""
+        self._renumber_rows()
 
     # ======================== 状态与健康监控 ========================
 
@@ -1999,8 +2168,16 @@ class App:
             logger.warning("自动保存失败: %s", e)
 
     def _restore_saved_data(self) -> None:
-        """启动时恢复上次未取走的数据。兼容 v1 和 v2 格式。"""
+        """启动时恢复上次未取走的数据。兼容 v1 和 v2 格式。
+
+        是否恢复由配置 auto_restore_data 控制（不再弹窗询问）。
+        """
         if not os.path.exists(self._data_file):
+            return
+
+        # 配置开关关闭 → 静默跳过，不弹窗
+        if not self.config.get("auto_restore_data", True):
+            logger.info("启动恢复已关闭（配置），跳过恢复上次数据")
             return
 
         try:
@@ -2011,49 +2188,35 @@ class App:
             if not items:
                 return
 
-            saved_at = saved.get("saved_at", "未知时间")
-            count = len(items)
             version = saved.get("version", 1)
 
-            should_restore = messagebox.askyesno(
-                "恢复数据",
-                f"检测到上次未取走的数据:\n"
-                f"  - 保存时间: {saved_at}\n"
-                f"  - 记录条数: {count} 条\n\n"
-                f"是否恢复？",
-            )
+            if version >= 2:
+                # v2 格式：items 是 [{"fields": {...}, "raw": "..."}, ...]
+                # 如果有保存的模版列且当前无模版，则恢复列
+                saved_columns = saved.get("columns", [])
+                if saved_columns and not self._has_template:
+                    self._reconfigure_columns(saved_columns)
 
-            if should_restore:
-                if version >= 2:
-                    # v2 格式：items 是 [{"fields": {...}, "raw": "..."}, ...]
-                    # 如果有保存的模版列且当前无模版，则恢复列
-                    saved_columns = saved.get("columns", [])
-                    if saved_columns and not self._has_template:
-                        self._reconfigure_columns(saved_columns)
-
-                    for item in items:
-                        if isinstance(item, dict) and "fields" in item:
-                            self._insert_restored_row(item, item["fields"])
-                        else:
-                            # 旧 v2 格式兼容
-                            self._insert_restored_row(
-                                {"fields": item, "raw": ""}, item,
-                            )
-                else:
-                    # v1 格式：items 是 [{"name": ..., "phone": ..., "address": ...}, ...]
-                    for item in items:
-                        fields = empty_fields_dict()
-                        fields["name"] = item.get("name", "")
-                        fields["phone"] = item.get("phone", "")
-                        fields["full_address"] = item.get("address", "")
-                        self._insert_restored_row({"fields": fields, "raw": ""}, fields)
-
-                self._capture_count = len(self._row_data)
-                self._count_var.set(f"已收集: {self._capture_count} 条")
-                logger.info("数据恢复完成 | v%d | %d 条", version, self._capture_count)
+                for item in items:
+                    if isinstance(item, dict) and "fields" in item:
+                        self._insert_restored_row(item, item["fields"])
+                    else:
+                        # 旧 v2 格式兼容
+                        self._insert_restored_row(
+                            {"fields": item, "raw": ""}, item,
+                        )
             else:
-                os.remove(self._data_file)
-                logger.info("用户拒绝恢复数据，备份已删除")
+                # v1 格式：items 是 [{"name": ..., "phone": ..., "address": ...}, ...]
+                for item in items:
+                    fields = empty_fields_dict()
+                    fields["name"] = item.get("name", "")
+                    fields["phone"] = item.get("phone", "")
+                    fields["full_address"] = item.get("address", "")
+                    self._insert_restored_row({"fields": fields, "raw": ""}, fields)
+
+            self._capture_count = len(self._row_data)
+            self._update_count_display()
+            logger.info("数据恢复完成 | v%d | %d 条", version, self._capture_count)
 
         except (json.JSONDecodeError, KeyError) as e:
             logger.warning("数据恢复失败（文件损坏）: %s", e)

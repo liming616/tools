@@ -351,15 +351,15 @@ def build_row_tuple(fields: dict, mapped_fields: list[Optional[str]]) -> tuple:
 
 def _resolve_field(fields: dict, field_path: str) -> str:
     """从 fields dict 中按路径取值。"""
-    # items_text 特殊处理
+    # items_text 特殊处理：直接存储识别到的物品原文，不做 name×qty 加工
     if field_path == "items_text":
         items = fields.get("items", [])
         if not items:
             return fields.get("items_text", "")
         return "; ".join(
-            f"{it.get('name', '')}×{it.get('qty', 1)}"
+            str(it.get("raw") or it.get("name", ""))
             for it in items
-            if it.get('name')
+            if (it.get("raw") or it.get("name"))
         )
 
     # raw 特殊处理

@@ -28,6 +28,7 @@ CONFIG_SCHEMA = {
     "poll_interval_ms": int,       # 100-2000
     "auto_transfer": (bool, int),  # bool
     "double_click_copy": (bool, int),  # bool
+    "auto_restore_data": (bool, int),  # bool
     "double_click_interval_ms": int,   # 200-1000
     "double_click_pos_tolerance": int,  # 5-100
     "max_errors_per_minute": int,   # 1-100
@@ -43,6 +44,7 @@ DEFAULT_CONFIG = {
     "poll_interval_ms": 400,
     "auto_transfer": False,
     "double_click_copy": True,
+    "auto_restore_data": True,
     "double_click_interval_ms": 500,
     "double_click_pos_tolerance": 20,
     "max_errors_per_minute": 10,

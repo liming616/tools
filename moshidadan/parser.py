@@ -63,7 +63,7 @@ RE_ADDRESS_TAGGED = re.compile(
 # 省份开头匹配地址（无标签情况）
 PROVINCES = "北京|天津|上海|重庆|河北|山西|辽宁|吉林|黑龙江|江苏|浙江|安徽|福建|江西|山东|河南|湖北|湖南|广东|广西|海南|四川|贵州|云南|西藏|陕西|甘肃|青海|宁夏|新疆|内蒙古"
 RE_ADDRESS_PROVINCE = re.compile(
-    rf'((?:{PROVINCES})(?:省|市|自治区|特别行政区)?[一-龥\d]+(?:市|区|县|镇|乡|村|路|街|道|巷|号|楼|栋|单元|室|层|座|弄|园|苑|小区|大厦|广场|公寓|花园)[一-龥\d\-]*)'
+    rf'((?:{PROVINCES})(?:省|市|自治区|特别行政区)?[一-龥\dA-Za-z]+(?:市|区|县|镇|乡|村|路|街|道|巷|号|楼|栋|单元|室|层|座|弄|园|苑|小区|大厦|广场|公寓|花园)[一-龥\dA-Za-z\-]*)'
 )
 
 # 商品行模式
@@ -78,6 +78,75 @@ RE_ITEM_QTY = re.compile(
 RE_ITEM_QTY_CN = re.compile(
     r'([一-龥a-zA-Z0-9]+?)\s*(\d+)\s*(?:件|个|盒|箱|套|双|条|瓶|袋|包|斤|公斤|千克|吨|把|只|本|台|部|支|张|块|颗|粒)'
 )
+
+# 中文数字（用于识别「两箱」「三斤」这类中文数量）
+CN_NUM_CHARS = "零〇一二两三四五六七八九十百千万"
+
+# 量词（件/个/箱/斤/条…，用于区分物品与姓名）
+MEASURE_WORDS = "件个盒箱套双条瓶袋包斤公斤千克吨把只本台部支张块颗粒"
+
+# 中文数量 + 量词（如「两箱大桃」→ 大桃 x2）
+RE_ITEM_QTY_CN_NUM = re.compile(
+    rf'^([{CN_NUM_CHARS}]+)\s*([{MEASURE_WORDS}]+)\s*(.+)$'
+)
+
+# 常见姓氏（用于 4 字 token 的姓名/物品判别）
+COMMON_SURNAMES = set(
+    "王李张刘陈杨赵黄周吴徐孙马朱胡郭何高林罗郑梁谢宋唐许韩冯邓曹彭曾肖"
+    "田董潘袁蔡蒋余于杜叶程苏魏吕丁任沈姚卢姜崔钟谭陆汪范金石廖贾夏韦付"
+    "方白邹孟熊秦邱江尹薛闫段雷侯龙史陶黎贺顾毛郝龚邵万钱严覃武戴莫孔向"
+    "汤成康施文洪"
+)
+
+_CN_DIGIT = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
+             "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+_CN_UNIT = {"十": 10, "百": 100, "千": 1000, "万": 10000}
+
+
+def _cn_num_to_int(s: str) -> Optional[int]:
+    """中文数字转整数（一到九千九百九十九）。无法解析返回 None。"""
+    if not s:
+        return None
+    total = 0
+    section = 0
+    number = 0
+    for ch in s:
+        if ch in _CN_DIGIT:
+            number = _CN_DIGIT[ch]
+        elif ch in _CN_UNIT:
+            unit = _CN_UNIT[ch]
+            if number == 0:
+                number = 1  # 处理「十」「十五」等
+            section += number * unit
+            number = 0
+            if unit == 10000:
+                total += section * 10000
+                section = 0
+        else:
+            return None
+    total += section + number
+    return total if total > 0 else None
+
+
+def _match_name_candidate(tok: str) -> Optional[str]:
+    """判断 token 是否像姓名，返回去掉尾随数字后的姓名；不像则返回 None。
+
+    用于「地址 电话 姓名 物品」同行格式中，区分姓名与物品信息：
+      - 「李明」「王五」→ 姓名
+      - 「两箱大桃」「三斤苹果」→ 物品（中文数字 + 量词开头）
+    """
+    m = re.match(r'^([一-龥]{2,4})\d*$', tok)
+    if not m:
+        return None
+    name = m.group(1)
+    # 「中文数字 + 量词」开头（两箱/三斤/五件…）→ 物品，不是姓名
+    if re.search(rf'^[{CN_NUM_CHARS}]+[{MEASURE_WORDS}]', name):
+        return None
+    if name[0] in COMMON_SURNAMES:
+        return name
+    if len(name) <= 3:
+        return name
+    return None  # 4 字且非常见姓氏 → 更像物品
 
 # 备注标签
 RE_NOTES = re.compile(
@@ -173,9 +242,9 @@ def parse_order(text: str) -> OrderInfo:
         if m:
             order.address = m.group(1)
 
-    # --- 2b. 「地址 姓名 电话」同行格式 ---
-    # 例："北京市大兴区亦庄经济开发区京东总部1号楼 李明1 1581117111"
-    # 地址提取成功后，从地址之后的文本拆出姓名和电话。
+    # --- 2b. 「地址 电话 姓名 物品」同行格式 ---
+    # 例："北京市大兴区亦庄经济开发区京东总部2号楼 15811111111 李明 两箱大桃"
+    # 地址提取成功后，从地址之后的文本拆出电话、姓名和物品。
     # 不依赖 order.phone 是否为空，避免手机号识别失败导致姓名也解析不到。
     if order.address:
         addr_pos = text.find(order.address)
@@ -194,15 +263,27 @@ def parse_order(text: str) -> OrderInfo:
                         if re.fullmatch(r'(?:\d{3,4}-)?\d{7,15}', tok):
                             order.phone = tok
                             break
-                # 姓名：首个「中文2-4字，可带尾随数字」的 token，且不是电话
+                # 姓名：首个「像姓名」的 token（排除物品描述，如「两箱大桃」）
                 if not order.name:
                     for tok in tokens:
                         if tok == order.phone:
                             continue
-                        m = re.match(r'^([一-龥]{2,4})\d*$', tok)
-                        if m:
-                            order.name = m.group(1)
+                        name = _match_name_candidate(tok)
+                        if name:
+                            order.name = name
                             break
+                # 物品：电话/姓名之外的剩余 token
+                if not order.items:
+                    for tok in tokens:
+                        if tok == order.phone:
+                            continue
+                        if order.name and re.fullmatch(re.escape(order.name) + r'\d*', tok):
+                            continue
+                        # 跳过地址尾段残留（路/街/巷/号/楼/栋/区/苑/园等，且无量词）
+                        if re.search(r'[路街巷号栋楼座单元室区苑园]', tok) and not re.search(rf'[{MEASURE_WORDS}]', tok):
+                            continue
+                        for it in parse_items(tok):
+                            order.items.append(it)
 
     # 兜底：姓名仍为空但已识别到电话时，从「电话之前、地址之后」取中文姓名
     # （适用于地址与姓名之间无空格的情况，如 "北京市...1号楼李明 15811171111"）
@@ -253,6 +334,9 @@ def parse_order(text: str) -> OrderInfo:
     # 无标签商品：逐行尝试提取商品，且用空格分割单行
     if not order.items:
         for line in remaining_lines:
+            # 跳过姓名行（避免把姓名当商品，兼容「李四1」这类带尾随数字）
+            if order.name and re.fullmatch(re.escape(order.name) + r'\d*', line.strip()):
+                continue
             # 跳过看起来像电话号码或地址的行
             if _is_phone_or_addr_line(line):
                 continue
@@ -422,23 +506,35 @@ def parse_items(text: str, skip_phone_addr: bool = True) -> list[dict]:
         qty = 1
         name = seg
 
-        # 尝试 "商品名 x2" 格式
-        m = RE_ITEM_QTY.search(seg)
+        # 尝试 "中文数字+量词" 格式（如「两箱大桃」→ 大桃 x2）
+        m = RE_ITEM_QTY_CN_NUM.match(seg)
         if m:
-            name = m.group(1).strip()
-            qty = int(m.group(2))
+            num = _cn_num_to_int(m.group(1))
+            rest = m.group(3).strip()
+            if num is not None and rest:
+                name = rest
+                qty = num
         else:
-            # 尝试 "商品名 2件" 格式
-            m = RE_ITEM_QTY_CN.search(seg)
+            # 尝试 "商品名 x2" 格式
+            m = RE_ITEM_QTY.search(seg)
             if m:
                 name = m.group(1).strip()
                 qty = int(m.group(2))
+            else:
+                # 尝试 "商品名 2件" 格式
+                m = RE_ITEM_QTY_CN.search(seg)
+                if m:
+                    name = m.group(1).strip()
+                    qty = int(m.group(2))
 
         # 去掉名称两端的无意义字符
         name = name.strip('，,。.、 \t*×xX')
 
         if name:
-            items.append({"name": name, "spec": "", "qty": qty, "price": 0.0})
+            items.append({
+                "name": name, "spec": "", "qty": qty, "price": 0.0,
+                "raw": seg,
+            })
 
     return items
 
