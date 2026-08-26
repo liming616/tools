@@ -1,0 +1,68 @@
+HELP.md
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+.gradle/
+.joycode/
+.mvn
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+*.log*
+logs/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+#build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+# vue model
+.DS_Store
+node_modules/
+/**/node_modules/**
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+/test/unit/coverage/
+/test/e2e/reports/
+selenium-debug.log
+dist/
+
+# Editor directories and files
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+
+# ==================== 产地快打产物过滤 ====================
+# 构建产物与运行日志一律不纳入版本控制，只保留代码改动
+moshidadan/build/
+moshidadan/dist/
+moshidadan/logs/
+moshidadan/__pycache__/
+moshidadan/*.log
+*.pyc
+__pycache__/

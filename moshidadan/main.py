@@ -468,7 +468,6 @@ class App:
             command=self._edit_prefill,
         )
         self._edit_prefill_btn.pack(side=tk.LEFT, padx=(6, 0))
-        self._edit_prefill_btn.configure(state=tk.DISABLED)
         self._prefill_var = tk.StringVar(value="预制信息: 未导入")
         ttk.Label(
             collect_toolbar, textvariable=self._prefill_var,
@@ -957,11 +956,19 @@ class App:
         return result["profiles"]
 
     def _edit_prefill(self) -> None:
-        """重新打开预制信息确认子窗口（不重新导入文件）。"""
-        if not self._prefill_profiles:
-            return
-        headers = self._prefill_headers()
-        confirmed = self._open_prefill_dialog(headers, self._prefill_profiles)
+        """重新打开预制信息确认子窗口（不重新导入文件）；无档案时新建空白档案。"""
+        if self._prefill_profiles:
+            headers = self._prefill_headers()
+            profiles = self._prefill_profiles
+        else:
+            # 无预制档案时，基于当前模版列新建一个空白档案供手动填写
+            headers = list(self._template_headers or [])
+            profiles = [{
+                "enabled": True,
+                "label": "档案1",
+                "values": {},
+            }]
+        confirmed = self._open_prefill_dialog(headers, profiles)
         if confirmed is None:
             return
         self._prefill_profiles = self._sanitize_prefill(confirmed)
@@ -974,14 +981,13 @@ class App:
         """刷新预制信息状态标签、编辑按钮与回显区。"""
         if not hasattr(self, "_prefill_var") or self._prefill_var is None:
             return
-        if not self._prefill_profiles:
-            self._prefill_var.set("预制信息: 未导入")
-            if self._edit_prefill_btn is not None:
-                self._edit_prefill_btn.configure(state=tk.DISABLED)
-            self._refresh_prefill_echo()
-            return
+        # 编辑按钮始终可用：无档案时也允许点击新建档案
         if self._edit_prefill_btn is not None:
             self._edit_prefill_btn.configure(state=tk.NORMAL)
+        if not self._prefill_profiles:
+            self._prefill_var.set("预制信息: 未导入")
+            self._refresh_prefill_echo()
+            return
         enabled = [p for p in self._prefill_profiles if p.get("enabled")]
         if enabled:
             labels = " + ".join(p.get("label") or "?" for p in enabled)
