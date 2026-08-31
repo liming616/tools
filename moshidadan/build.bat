@@ -27,6 +27,14 @@ python --version
 echo.
 
 :: ============================================================
+::  读取版本号（统一来自 app_config.json）
+:: ============================================================
+for /f "usebackq delims=" %%V in (`python -c "import json;print(json.load(open('app_config.json',encoding='utf-8'))['version'])"`) do set "APP_VERSION=%%V"
+if "%APP_VERSION%"=="" set "APP_VERSION=v1.0.0"
+set "EXE_NAME=产地快打_%APP_VERSION%"
+
+
+:: ============================================================
 ::  检查 pip
 :: ============================================================
 python -m pip --version >nul 2>&1
@@ -89,13 +97,15 @@ if exist moshidadan.spec (
     pyinstaller moshidadan.spec --noconfirm
 ) else (
     if exist icon.ico (
-        pyinstaller --onefile --windowed --name "产地快打" --icon=icon.ico ^
+        pyinstaller --onefile --windowed --name "%EXE_NAME%" --icon=icon.ico ^
             --hidden-import tkinter --hidden-import ctypes ^
+            --add-data "app_config.json;." ^
             --exclude-module matplotlib --exclude-module numpy ^
             main.py
     ) else (
-        pyinstaller --onefile --windowed --name "产地快打" ^
+        pyinstaller --onefile --windowed --name "%EXE_NAME%" ^
             --hidden-import tkinter --hidden-import ctypes ^
+            --add-data "app_config.json;." ^
             --exclude-module matplotlib --exclude-module numpy ^
             main.py
     )
@@ -105,17 +115,19 @@ if exist moshidadan.spec (
 ::  结果
 :: ============================================================
 echo.
-if exist "dist\产地快打.exe" (
-    for %%A in ("dist\产地快打.exe") do echo ✅ 打包成功！文件大小: %%~zA 字节
-    echo.
-    echo 📁 dist\产地快打.exe
-    echo.
-    echo 使用:
-    echo   1. 双击 产地快打.exe
-    echo   2. 设置中填写打单软件窗口标题关键词
-    echo   3. 微信中双击订单消息 → 自动识别 → 发送
-    echo.
-    start "" explorer /select,"dist\产地快打.exe"
+if exist "dist\*.exe" (
+    for %%A in ("dist\*.exe") do (
+        echo ✅ 打包成功！文件大小: %%~zA 字节
+        echo.
+        echo 📁 %%A
+        echo.
+        echo 使用:
+        echo   1. 双击 %%~nxA
+        echo   2. 设置中填写打单软件窗口标题关键词
+        echo   3. 微信中双击订单消息 → 自动识别 → 发送
+        echo.
+        start "" explorer /select,"%%A"
+    )
 ) else (
     echo ❌ 打包失败
     echo.
@@ -125,7 +137,7 @@ if exist "dist\产地快打.exe" (
     echo   · 磁盘空间不足 → 至少需要 500MB 空闲空间
     echo.
     echo 手动打包命令:
-    echo   pyinstaller --onefile --windowed --name "产地快打" main.py
+    echo   pyinstaller --onefile --windowed --name "%EXE_NAME%" main.py
     echo.
 )
 pause

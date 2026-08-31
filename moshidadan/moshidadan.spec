@@ -3,18 +3,34 @@
 """
 PyInstaller 打包配置
 用法: pyinstaller moshidadan.spec
-输出: dist/产地快打.exe (单文件 GUI)
+输出: dist/产地快打_<version>.exe (单文件 GUI)
 """
 
-import os, sys
+import json
+import os
+import sys
 
 _icon = 'icon.ico' if os.path.exists('icon.ico') else None
+
+# 从通用配置读取应用名和版本号，产物名随版本号自动同步
+_APP_CONFIG = {}
+try:
+    with open('app_config.json', encoding='utf-8') as _f:
+        _APP_CONFIG = json.load(_f)
+except Exception:
+    pass
+
+_EXE_NAME = "{}_{}".format(
+    _APP_CONFIG.get('app_name', '产地快打'),
+    _APP_CONFIG.get('version', 'v1.0.0'),
+)
+
 
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('app_config.json', '.')],
     hiddenimports=[
         'tkinter',
         'tkinter.ttk',
@@ -60,7 +76,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='产地快打',
+    name=_EXE_NAME,
     debug=False,
     bootloader_ignore_signals=False,
     strip=True,

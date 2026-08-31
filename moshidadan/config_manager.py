@@ -15,12 +15,19 @@ import shutil
 from copy import deepcopy
 from typing import Any, Optional
 
-from paths import app_dir
+from paths import app_dir, resource_path
 
 # ======================== 常量 ========================
 
 CONFIG_FILE = os.path.join(app_dir(), "config.json")
 CONFIG_VERSION = 2  # 当前配置版本
+
+# 应用元数据配置（随 exe 打包，只读）
+APP_CONFIG_FILE = "app_config.json"
+DEFAULT_APP_CONFIG = {
+    "app_name": "产地快打",
+    "version": "v1.0.0",
+}
 
 # 配置 Schema 定义
 CONFIG_SCHEMA = {
@@ -227,3 +234,25 @@ def _migrate_config(raw: dict, from_version: int) -> dict:
                 raw[key] = DEFAULT_CONFIG[key]
 
     return raw
+
+
+
+def load_app_config() -> dict:
+    """加载打包内置的应用元数据（应用名、版本号）。
+
+    通过 resource_path 读取：源码运行时读取项目目录，
+    打包后从 PyInstaller 的 _MEIPASS 临时目录读取，
+    不依赖任何绝对路径；文件缺失或损坏时回退默认值。
+    """
+    config = deepcopy(DEFAULT_APP_CONFIG)
+    try:
+        with open(resource_path(APP_CONFIG_FILE), "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        if isinstance(raw, dict):
+            for key in DEFAULT_APP_CONFIG:
+                value = raw.get(key)
+                if isinstance(value, str) and value.strip():
+                    config[key] = value.strip()
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        pass
+    return config

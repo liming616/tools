@@ -114,17 +114,22 @@ echo   ✅ 打包工具安装完成
 echo.
 echo [4/4] 开始打包...
 echo.
+for /f "usebackq delims=" %%V in (`python -c "import json;print(json.load(open('app_config.json',encoding='utf-8'))['version'])"`) do set "APP_VERSION=%%V"
+if "%APP_VERSION%"=="" set "APP_VERSION=v1.0.0"
+set "EXE_NAME=产地快打_%APP_VERSION%"
 echo   ╔══════════════════════════════════════════╗
-echo   ║  正在生成 产地快打.exe（约 2-5 分钟）   ║
+echo   ║  正在生成 %EXE_NAME%.exe（约 2-5 分钟）  ║
 echo   ╚══════════════════════════════════════════╝
 echo.
 
 call build.bat
-if exist "dist\产地快打.exe" (
+set "EXE_FILE="
+for %%F in ("dist\*.exe") do set "EXE_FILE=%%~nxF"
+if defined EXE_FILE (
     echo.
     echo   ╔══════════════════════════════════════════╗
     echo   ║  🎉 全部完成！                          ║
-    echo   ║  📁 dist\产地快打.exe                   ║
+    echo   ║  📁 dist\%EXE_FILE%                     ║
     echo   ║  建议: 重启电脑使 PATH 永久生效         ║
     echo   ╚══════════════════════════════════════════╝
     echo.

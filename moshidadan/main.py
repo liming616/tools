@@ -33,7 +33,7 @@ from typing import Optional
 # ======================== 内部模块 ========================
 
 from paths import app_dir, resource_path
-from config_manager import load_config, save_config, reset_config, DEFAULT_CONFIG
+from config_manager import load_config, save_config, reset_config, DEFAULT_CONFIG, load_app_config
 from logger import get_logger, log_exception
 from crash_handler import install_crash_handler, show_error_dialog, show_warning_dialog
 
@@ -89,6 +89,11 @@ def _is_receiver_field(field_path: Optional[str]) -> bool:
 class App:
     def __init__(self, config: dict):
         self.config = config
+        self.app_config = load_app_config()
+        self._app_title = "{} {}".format(
+            self.app_config.get("app_name", "产地快打"),
+            self.app_config.get("version", "v1.0.0"),
+        )
         self._running = False
         self._last_clipboard = ""
         self._capture_count = 0
@@ -162,7 +167,7 @@ class App:
 
         # ---- 创建主窗口 ----
         self._root = tk.Tk()
-        self._root.title("产地快打")
+        self._root.title(self._app_title)
         self._root.geometry("960x620")
         self._root.minsize(700, 480)
 
@@ -313,7 +318,7 @@ class App:
         header.pack(fill=tk.X, padx=pad_x, pady=(14, 0))
 
         ttk.Label(
-            header, text="📋 产地快打",
+            header, text=f"📋 {self._app_title}",
             font=("Microsoft YaHei", 14, "bold"),
         ).pack(side=tk.LEFT)
 
