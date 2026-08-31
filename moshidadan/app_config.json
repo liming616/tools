@@ -1,6 +1,6 @@
 {
   "app_name": "产地快打",
-  "version": "v1.0.0",
+  "version": "v1.0.1",
   "templates": {
     "default": "JD",
     "options": [

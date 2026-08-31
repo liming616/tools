@@ -101,7 +101,7 @@ class App:
         self.app_config = load_app_config()
         self._app_title = "{} {}".format(
             self.app_config.get("app_name", "产地快打"),
-            self.app_config.get("version", "v1.0.0"),
+            self.app_config.get("version", "v1.0.1"),
         )
         self._template_key = self.app_config.get("templates", {}).get("default", "JD")
         self._template_options = self.app_config.get("templates", {}).get("options", [])

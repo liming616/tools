@@ -23,11 +23,11 @@ class LoadAppConfigTest(unittest.TestCase):
             json.dump(content, f, ensure_ascii=False, indent=2)
 
     def test_load_valid_config(self):
-        self._write({"app_name": "产地快打", "version": "v1.0.0"})
+        self._write({"app_name": "产地快打", "version": "v1.0.1"})
         with patch("config_manager.resource_path", return_value=self._config_path()):
             config = config_manager.load_app_config()
         self.assertEqual(config["app_name"], "产地快打")
-        self.assertEqual(config["version"], "v1.0.0")
+        self.assertEqual(config["version"], "v1.0.1")
 
     def test_missing_file_returns_default(self):
         with patch("config_manager.resource_path", return_value=self._config_path()):
@@ -39,7 +39,7 @@ class LoadAppConfigTest(unittest.TestCase):
             f.write("{not-json")
         with patch("config_manager.resource_path", return_value=self._config_path()):
             config = config_manager.load_app_config()
-        self.assertEqual(config["version"], "v1.0.0")
+        self.assertEqual(config["version"], "v1.0.1")
 
     def test_blank_values_use_default(self):
         self._write({"app_name": "  ", "version": ""})
@@ -50,7 +50,7 @@ class LoadAppConfigTest(unittest.TestCase):
     def test_nested_template_config_loaded(self):
         self._write({
             "app_name": "产地快打",
-            "version": "v1.0.0",
+            "version": "v1.0.1",
             "templates": {
                 "default": "JD",
                 "options": [
