@@ -50,9 +50,12 @@ from template_manager import (
 
 # 安全剪贴板操作
 from clipboard_safe import (
-    safe_read_clipboard, safe_write_clipboard, send_ctrl_c,
-    read_clipboard_after_ctrl_c, get_foreground_title, is_wechat_active,
+    send_ctrl_c, get_foreground_title, is_wechat_active,
 )
+
+# 剪贴板工作线程与单实例互斥
+from clipboard_worker import ClipboardWorker
+from single_instance import acquire_single_instance
 
 # 全局低级鼠标钩子（连击采集）
 from hook_engine import MouseHook
@@ -60,6 +63,9 @@ from hook_engine import MouseHook
 # ======================== 日志 ========================
 
 logger = get_logger("moshidadan.main")
+
+# 单实例互斥句柄（进程存活期间保持引用）
+_single_instance_handle: Optional[int] = None
 
 # ======================== Windows API（仅用于鼠标检测）========================
 
@@ -89,6 +95,8 @@ def _is_receiver_field(field_path: Optional[str]) -> bool:
 class App:
     def __init__(self, config: dict):
         self.config = config
+        self._clipboard_worker = ClipboardWorker()
+        self._clipboard_worker.start()
         self.app_config = load_app_config()
         self._app_title = "{} {}".format(
             self.app_config.get("app_name", "产地快打"),
@@ -234,8 +242,8 @@ class App:
     # ======================== 剪贴板读取 ========================
 
     def _safe_read_clipboard(self) -> str:
-        """安全读取剪贴板（使用 Windows API，带超时保护，不会卡死 UI）。"""
-        return safe_read_clipboard(timeout_ms=500)
+        """读取工作线程的最新剪贴板快照（非阻塞，不调用 WinAPI）。"""
+        return self._clipboard_worker.get_latest_text()
 
     def _poll_clipboard(self) -> None:
         """主线程轮询剪贴板 — 仅处理剪贴板变化 → 预览更新 + 自动转储。"""
@@ -1525,8 +1533,8 @@ class App:
             if not send_ctrl_c():
                 logger.warning("连击后 Ctrl+C 发送失败（第%d/%d次）", i + 1, attempts)
             else:
-                new_text = read_clipboard_after_ctrl_c(
-                    prev_clip, timeout_ms=500, poll_interval_ms=80,
+                new_text = self._clipboard_worker.wait_for_change(
+                    prev_clip, timeout_ms=500, poll_interval_ms=50,
                 )
                 if new_text:
                     logger.debug(
@@ -1607,7 +1615,7 @@ class App:
             rows.append("\t".join(str(v) for v in values[1:]))
         if rows:
             text = "\n".join(rows)
-            if safe_write_clipboard(text):
+            if self._clipboard_worker.write_clipboard(text, timeout_ms=2000):
                 self._flash_status(f"📋 已复制全部 {len(rows)} 条记录到剪贴板")
             else:
                 show_error_dialog(
@@ -1910,7 +1918,7 @@ class App:
         if 0 <= col_index < len(values):
             text = values[col_index]
             if text:
-                if safe_write_clipboard(text):
+                if self._clipboard_worker.write_clipboard(text, timeout_ms=2000):
                     self._flash_status(f"📋 已复制: {text}")
                 else:
                     self._flash_status("⚠️ 复制失败，请重试")
@@ -1921,7 +1929,7 @@ class App:
         """复制收集表格整行。"""
         values = self._collect_table.item(item, "values")
         text = "\t".join(str(v) for v in values[1:])
-        if safe_write_clipboard(text):
+        if self._clipboard_worker.write_clipboard(text, timeout_ms=2000):
             self._flash_status("📋 已复制整行")
         else:
             self._flash_status("⚠️ 复制失败，请重试")
@@ -2105,6 +2113,17 @@ class App:
                 "⚠️ 剪贴板轮询疑似卡死\n"
                 "请检查系统剪贴板是否异常\n"
                 "如持续此状态请重启应用"
+            )
+
+        # 检查剪贴板工作线程是否有新快照
+        if self._clipboard_worker.is_stale(5.0):
+            logger.error(
+                "剪贴板工作线程疑似卡死！距上次读取 %.1f 秒",
+                now - self._clipboard_worker.get_latest_ts(),
+            )
+            self._show_health_warning(
+                "⚠️ 剪贴板繁忙或工作线程卡住\n"
+                "请检查其他程序是否长期占用剪贴板"
             )
 
         # 检查鼠标采集
@@ -2293,6 +2312,7 @@ class App:
 
         # 停止轮询
         self._stop_mouse_poll()
+        self._clipboard_worker.stop()
         if self._auto_save_id:
             self._root.after_cancel(self._auto_save_id)
             self._auto_save_id = None
@@ -2396,8 +2416,16 @@ def _startup_check() -> bool:
 
 def main() -> None:
     """主入口。"""
+    global _single_instance_handle
+
     # 1. 安装崩溃处理器
     install_crash_handler()
+
+    # 1.5 单实例互斥：已有实例运行时直接退出
+    _single_instance_handle = acquire_single_instance()
+    if _single_instance_handle is None:
+        show_warning_dialog("已在运行", "产地快打已在运行中，请勿重复打开。")
+        sys.exit(0)
 
     # 2. 加载配置
     config = load_config()

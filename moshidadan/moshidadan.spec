@@ -46,6 +46,8 @@ a = Analysis(
         'address_parser',
         'clipboard_safe',
         'clipboard_monitor',
+        'clipboard_worker',
+        'single_instance',
         'config_manager',
         'logger',
         'crash_handler',
