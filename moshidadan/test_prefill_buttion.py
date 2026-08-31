@@ -53,15 +53,16 @@ class PrefillButtonTest(unittest.TestCase):
 
     def test_edit_prefill_creates_blank_profile_when_empty(self):
         app = make_app([])
-        confirmed = [{"enabled": True, "label": "档案1", "values": {"寄件人姓名": "张三"}}]
+        confirmed = [{"enabled": True, "label": "", "values": {"寄件人姓名": "张三"}}]
         with mock.patch.object(App, "_open_prefill_dialog", return_value=confirmed) as dlg, \
                 mock.patch.object(main_mod, "save_config") as save:
             app._edit_prefill()
         self.assertEqual(dlg.call_count, 1)
         headers, profiles = dlg.call_args[0]
-        self.assertEqual(headers, ["寄件人姓名", "寄件人手机", "寄件人地址", "时效产品"])
+        self.assertEqual(headers, main_mod.PREFILL_FIELDS)
         self.assertEqual(len(profiles), 1)
         self.assertTrue(profiles[0]["enabled"])
+        self.assertEqual(profiles[0]["label"], "")
         self.assertEqual(app._prefill_profiles[0]["values"]["寄件人姓名"], "张三")
         save.assert_called_once_with(app.config)
 
@@ -72,8 +73,77 @@ class PrefillButtonTest(unittest.TestCase):
                 mock.patch.object(main_mod, "save_config"):
             app._edit_prefill()
         headers, profiles = dlg.call_args[0]
+        self.assertEqual(headers, main_mod.PREFILL_FIELDS)
         self.assertEqual(profiles, existing)
         self.assertEqual(app._prefill_profiles, existing)
+
+    def test_validate_prefill_requires_other_fields_and_phone(self):
+        missing = App._validate_prefill({})
+        self.assertIn("寄件人姓名 为必填项", missing)
+        self.assertIn("寄件人地址 为必填项", missing)
+        self.assertIn("物品类型 为必填项", missing)
+        self.assertIn("时效产品 为必填项", missing)
+        self.assertIn("寄件人手机、寄件人座机至少填写一项", missing)
+
+    def test_validate_prefill_accepts_all_fields(self):
+        values = {
+            "寄件人姓名": "张三",
+            "寄件人手机": "13800000000",
+            "寄件人座机": "010-88888888",
+            "寄件人地址": "北京市朝阳区",
+            "物品类型": "生鲜",
+            "时效产品": "标准快递",
+        }
+        self.assertEqual(App._validate_prefill(values), [])
+
+    def test_validate_prefill_accepts_phone_only(self):
+        values = {
+            "寄件人姓名": "张三",
+            "寄件人手机": "13800000000",
+            "寄件人座机": "",
+            "寄件人地址": "北京市朝阳区",
+            "物品类型": "生鲜",
+            "时效产品": "标准快递",
+        }
+        self.assertEqual(App._validate_prefill(values), [])
+
+    def test_validate_prefill_accepts_landline_only(self):
+        values = {
+            "寄件人姓名": "张三",
+            "寄件人手机": "",
+            "寄件人座机": "010-88888888",
+            "寄件人地址": "北京市朝阳区",
+            "物品类型": "生鲜",
+            "时效产品": "标准快递",
+        }
+        self.assertEqual(App._validate_prefill(values), [])
+
+    def test_validate_prefill_rejects_missing_both_phones(self):
+        values = {
+            "寄件人姓名": "张三",
+            "寄件人手机": "",
+            "寄件人座机": "",
+            "寄件人地址": "北京市朝阳区",
+            "物品类型": "生鲜",
+            "时效产品": "标准快递",
+        }
+        self.assertIn(
+            "寄件人手机、寄件人座机至少填写一项",
+            App._validate_prefill(values),
+        )
+
+    def test_single_prefill_values_merges_profiles_later_wins(self):
+        profiles = [
+            {"enabled": True, "label": "档案1", "values": {"寄件人姓名": "张三", "寄件人手机": "1"}},
+            {"enabled": False, "label": "档案2", "values": {"寄件人姓名": "李四", "寄件人地址": "北京"}},
+        ]
+        self.assertEqual(
+            App._single_prefill_values(profiles),
+            {"寄件人姓名": "李四", "寄件人手机": "1", "寄件人地址": "北京"},
+        )
+
+    def test_single_prefill_values_empty_when_no_profiles(self):
+        self.assertEqual(App._single_prefill_values([]), {})
 
 
 if __name__ == "__main__":

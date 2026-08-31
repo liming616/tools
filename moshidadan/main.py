@@ -75,8 +75,9 @@ VK_LBUTTON = 0x01
 
 # ======================== 主应用 ========================
 
-# 预制信息必填列（寄件人姓名/手机/地址 + 时效产品），保存时为空则卡控
-REQUIRED_PREFILL_HEADERS = ["寄件人姓名", "寄件人手机", "寄件人地址", "时效产品"]
+# 预制信息弹窗固定展示字段；其中手机/座机二选一必填，其余字段必填
+PREFILL_FIELDS = ["寄件人姓名", "寄件人手机", "寄件人座机", "寄件人地址", "物品类型", "时效产品"]
+PREFILL_REQUIRED_FIELDS = ["寄件人姓名", "寄件人地址", "物品类型", "时效产品"]
 
 
 def _is_receiver_field(field_path: Optional[str]) -> bool:
@@ -902,136 +903,80 @@ class App:
         return headers
 
     def _open_prefill_dialog(self, headers: list[str], profiles: list[dict]):
-        """打开预制信息确认子窗口。返回确认后的 profiles 或 None（取消）。"""
-        # 只展示至少一个档案填写了值的列，减少窗口高度
-        headers = [
-            h for h in headers
-            if any((p.get("values") or {}).get(h, "").strip() for p in profiles)
-        ] or list(headers)
+        """打开预制信息确认子窗口（单一预制信息，无档案勾选）。
 
-        # 必填列始终展示（即使当前为空），便于填写与校验
-        for req in REQUIRED_PREFILL_HEADERS:
-            if req not in headers:
-                headers.append(req)
+        仅展示 PREFILL_FIELDS 六个字段；返回确认后的 profiles 或 None（取消）。
+        """
+        display_headers = list(PREFILL_FIELDS)
+        values = self._single_prefill_values(profiles)
 
         top = tk.Toplevel(self._root)
         top.title("预制信息确认")
         top.transient(self._root)
-        top.resizable(True, True)
+        top.resizable(False, False)
 
         pad = 12
         ttk.Label(
             top,
-            text="勾选要启用的档案，核对/编辑字段值，点击「确认」后应用到导出。",
+            text="核对/编辑预制信息，点击「确认」后应用到导出。",
             font=("Microsoft YaHei", 9), foreground="#666",
         ).pack(anchor=tk.W, padx=pad, pady=(pad, 6))
 
-        # 可滚动区域（Canvas + 垂直滚动条）
-        container = ttk.Frame(top)
-        container.pack(fill=tk.BOTH, expand=True, padx=pad, pady=4)
+        body = ttk.Frame(top)
+        body.pack(fill=tk.BOTH, expand=True, padx=pad, pady=4)
 
-        canvas = tk.Canvas(container, highlightthickness=0, borderwidth=0)
-        vsb = ttk.Scrollbar(container, orient=tk.VERTICAL, command=canvas.yview)
-        canvas.configure(yscrollcommand=vsb.set)
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        body = ttk.Frame(canvas)
-        canvas.create_window((0, 0), window=body, anchor="nw")
-        body.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-
-        # 鼠标滚轮滚动
-        def _on_wheel(event):
-            canvas.yview_scroll(int(-event.delta / 120), "units")
-
-        def _bind_wheel(_e=None):
-            canvas.bind_all("<MouseWheel>", _on_wheel)
-
-        def _unbind_wheel(_e=None):
-            try:
-                canvas.unbind_all("<MouseWheel>")
-            except tk.TclError:
-                pass
-
-        canvas.bind("<Enter>", _bind_wheel)
-        canvas.bind("<Leave>", _unbind_wheel)
-
-        n_profiles = len(profiles)
-        enabled_vars = [
-            tk.BooleanVar(value=bool(p.get("enabled", False))) for p in profiles
-        ]
-        value_vars = [
-            {h: tk.StringVar(value=(p.get("values") or {}).get(h, "")) for h in headers}
-            for p in profiles
-        ]
-
-        # 表头行：字段 + 每个档案的勾选框
-        ttk.Label(body, text="字段", font=("Microsoft YaHei", 9, "bold")).grid(
-            row=0, column=0, sticky="w", padx=4, pady=3)
-        for j, p in enumerate(profiles):
-            label = p.get("label") or f"档案{j + 1}"
-            ttk.Checkbutton(
-                body, text=f"☑ {label}", variable=enabled_vars[j],
-            ).grid(row=0, column=1 + j, sticky="w", padx=4, pady=3)
-
-        # 字段行
-        for i, h in enumerate(headers, start=1):
-            ttk.Label(body, text=h).grid(row=i, column=0, sticky="w", padx=4, pady=2)
-            for j in range(n_profiles):
-                ttk.Entry(body, textvariable=value_vars[j][h], width=30).grid(
-                    row=i, column=1 + j, sticky="ew", padx=4, pady=2)
-
-        for j in range(n_profiles):
-            body.grid_columnconfigure(1 + j, weight=1)
+        value_vars = {
+            h: tk.StringVar(value=values.get(h, "")) for h in display_headers
+        }
+        for i, h in enumerate(display_headers):
+            ttk.Label(body, text=h).grid(
+                row=i, column=0, sticky="w", padx=4, pady=2)
+            ttk.Entry(body, textvariable=value_vars[h], width=40).grid(
+                row=i, column=1, sticky="ew", padx=4, pady=2)
+        body.grid_columnconfigure(1, weight=1)
 
         result: dict = {"profiles": None}
 
         def on_confirm():
-            # 必填校验：启用的档案缺失必填字段时卡控，不允许保存
-            missing = []
-            for j, p in enumerate(profiles):
-                if not enabled_vars[j].get():
-                    continue
-                label = p.get("label") or f"档案{j + 1}"
-                for req in REQUIRED_PREFILL_HEADERS:
-                    if req in value_vars[j] and not value_vars[j][req].get().strip():
-                        missing.append(f"{label}：{req}")
+            vals = {h: value_vars[h].get().strip() for h in display_headers}
+            missing = self._validate_prefill(vals)
             if missing:
                 messagebox.showwarning(
                     "必填项缺失",
-                    "以下必填字段为空，请填写后再确认：\n\n" + "\n".join(missing),
+                    "以下字段未填写，请补充后再确认：\n\n" + "\n".join(missing),
                     parent=top,
                 )
                 return
-
-            out = []
-            for j, p in enumerate(profiles):
-                vals = {h: value_vars[j][h].get().strip() for h in headers}
-                out.append({
-                    "enabled": enabled_vars[j].get(),
-                    "label": p.get("label", ""),
-                    "values": vals,
-                })
-            result["profiles"] = out
-            _unbind_wheel()
+            result["profiles"] = [{
+                "enabled": True,
+                "label": "",
+                "values": vals,
+            }]
             top.destroy()
+
+        def on_reset():
+            if not messagebox.askyesno(
+                "确认重置", "确定要清空当前填写的预制信息吗？", parent=top
+            ):
+                return
+            for var in value_vars.values():
+                var.set("")
 
         def on_cancel():
             result["profiles"] = None
-            _unbind_wheel()
             top.destroy()
 
         btns = ttk.Frame(top)
         btns.pack(fill=tk.X, padx=pad, pady=(6, pad))
+        ttk.Button(btns, text="重置", command=on_reset).pack(side=tk.LEFT)
         ttk.Button(btns, text="确认", command=on_confirm).pack(side=tk.RIGHT, padx=(6, 0))
         ttk.Button(btns, text="取消", command=on_cancel).pack(side=tk.RIGHT)
 
-        # 设定窗口尺寸：内容少则自适应，内容多则限高 + 滚动；并居中
+        # 设定窗口尺寸并居中
         top.update_idletasks()
         req_w = max(460, top.winfo_reqwidth())
         body_h = body.winfo_reqheight()
-        content_h = body_h + 130  # 顶部说明 + 底部按钮 + 边距
-        req_h = min(560, max(260, content_h))
+        req_h = min(420, max(280, body_h + 130))
         x = self._root.winfo_x() + (self._root.winfo_width() - req_w) // 2
         y = self._root.winfo_y() + (self._root.winfo_height() - req_h) // 2
         top.geometry(f"{req_w}x{req_h}+{max(0, x)}+{max(0, y)}")
@@ -1047,19 +992,16 @@ class App:
         return result["profiles"]
 
     def _edit_prefill(self) -> None:
-        """重新打开预制信息确认子窗口（不重新导入文件）；无档案时新建空白档案。"""
-        if self._prefill_profiles:
-            headers = self._prefill_headers()
-            profiles = self._prefill_profiles
-        else:
-            # 无预制档案时，基于当前模版列新建一个空白档案供手动填写
-            headers = list(self._template_headers or [])
-            profiles = [{
-                "enabled": True,
-                "label": "档案1",
-                "values": {},
-            }]
-        confirmed = self._open_prefill_dialog(headers, profiles)
+        """打开预制信息确认子窗口（不重新导入文件）。
+
+        无预制信息时基于 PREFILL_FIELDS 新建空白表单供手动填写。
+        """
+        profiles = self._prefill_profiles or [{
+            "enabled": True,
+            "label": "",
+            "values": {},
+        }]
+        confirmed = self._open_prefill_dialog(PREFILL_FIELDS, profiles)
         if confirmed is None:
             return
         self._prefill_profiles = self._sanitize_prefill(confirmed)
@@ -1072,20 +1014,13 @@ class App:
         """刷新预制信息状态标签、编辑按钮与回显区。"""
         if not hasattr(self, "_prefill_var") or self._prefill_var is None:
             return
-        # 编辑按钮始终可用：无档案时也允许点击新建档案
+        # 编辑按钮始终可用：无预制信息时也允许点击填写
         if self._edit_prefill_btn is not None:
             self._edit_prefill_btn.configure(state=tk.NORMAL)
         if not self._prefill_profiles:
             self._prefill_var.set("预制信息: 未导入")
-            self._refresh_prefill_echo()
-            return
-        enabled = [p for p in self._prefill_profiles if p.get("enabled")]
-        if enabled:
-            labels = " + ".join(p.get("label") or "?" for p in enabled)
-            self._prefill_var.set(f"预制: {labels}")
         else:
-            self._prefill_var.set(
-                f"预制信息: {len(self._prefill_profiles)} 档案(均未启用)")
+            self._prefill_var.set("预制信息: 已配置")
         self._refresh_prefill_echo()
 
     def _refresh_prefill_echo(self) -> None:
@@ -1100,19 +1035,13 @@ class App:
             self._prefill_echo_frame.pack_forget()
             return
 
-        enabled = [p for p in self._prefill_profiles if p.get("enabled")]
-        lines = [
-            f"【预制信息】共 {len(self._prefill_profiles)} 个档案，已启用 {len(enabled)} 个"
+        values = self._prefill_profiles[0].get("values") or {}
+        fields = [
+            f"{k}：{v}"
+            for k, v in values.items()
+            if str(v).strip()
         ]
-        for i, p in enumerate(self._prefill_profiles, 1):
-            mark = "✅" if p.get("enabled") else "❌"
-            label = p.get("label") or f"档案{i}"
-            fields = [
-                f"{k}：{v}"
-                for k, v in (p.get("values") or {}).items()
-                if str(v).strip()
-            ]
-            lines.append(f"{mark} {label}  " + "｜".join(fields))
+        lines = ["【预制信息】" + "｜".join(fields)] if fields else ["【预制信息】未填写"]
 
         self._prefill_echo.configure(state="normal")
         self._prefill_echo.delete("1.0", tk.END)
@@ -2385,6 +2314,31 @@ class App:
                 "崩溃日志已保存，请将此日志发送给开发者以帮助排查问题。",
                 str(e),
             )
+
+    @staticmethod
+    def _single_prefill_values(profiles: list[dict]) -> dict:
+        """把历史预制档案合并为单一预制信息，后者覆盖前者。"""
+        merged: dict = {}
+        for p in profiles or []:
+            for k, v in (p.get("values") or {}).items():
+                if str(v).strip():
+                    merged[k] = str(v).strip()
+        return merged
+
+    @staticmethod
+    def _validate_prefill(values: dict) -> list[str]:
+        """校验预制信息：手机/座机二选一必填，其余字段必填。
+
+        返回缺失提示列表，为空表示校验通过。
+        """
+        missing = []
+        for field in PREFILL_REQUIRED_FIELDS:
+            if not str(values.get(field, "")).strip():
+                missing.append(f"{field} 为必填项")
+        if not str(values.get("寄件人手机", "")).strip() and not str(
+                values.get("寄件人座机", "")).strip():
+            missing.append("寄件人手机、寄件人座机至少填写一项")
+        return missing
 
 
 # ======================== 启动自检 ========================
