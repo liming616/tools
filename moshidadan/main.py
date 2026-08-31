@@ -577,7 +577,7 @@ class App:
 
         ttk.Button(
             bottom, text="📊 导出Excel", command=self._export_excel,
-        ).pack(side=tk.LEFT, padx=(6, 0))
+        ).pack(side=tk.RIGHT)
 
         # 错误计数指示器
         self._error_indicator_var = tk.StringVar(value="")
