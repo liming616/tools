@@ -43,9 +43,8 @@ from address_parser import parse_address_safe, ParsedAddress
 
 # 模版管理
 from template_manager import (
-    DEFAULT_HEADERS, load_template_headers, map_headers_to_fields,
+    DEFAULT_HEADERS, map_headers_to_fields,
     build_row_tuple, empty_fields_dict, compute_column_width,
-    load_template_and_prefill,
 )
 
 # 安全剪贴板操作
@@ -56,6 +55,7 @@ from clipboard_safe import (
 # 剪贴板工作线程与单实例互斥
 from clipboard_worker import ClipboardWorker
 from single_instance import acquire_single_instance
+from excel_exporter import EXPORT_FIELD_MAP, flatten_categories, write_export_excel
 
 # 全局低级鼠标钩子（连击采集）
 from hook_engine import MouseHook
@@ -102,6 +102,9 @@ class App:
             self.app_config.get("app_name", "产地快打"),
             self.app_config.get("version", "v1.0.0"),
         )
+        self._template_key = self.app_config.get("templates", {}).get("default", "JD")
+        self._template_options = self.app_config.get("templates", {}).get("options", [])
+        self._selected_export_fields = self._load_export_field_selection()
         self._running = False
         self._last_clipboard = ""
         self._capture_count = 0
@@ -162,7 +165,6 @@ class App:
         self._visible_fields: list[Optional[str]] = [] # 可见列对应的 field_path
         self._column_ids: list[str] = []              # "col0", "col1", ...
         self._has_template: bool = False
-        self._template_path: Optional[str] = None
 
         # ---- 预制信息 ----
         self._prefill_profiles: list[dict] = self._sanitize_prefill(
@@ -196,18 +198,9 @@ class App:
         self._root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._root.bind("<Control-Shift-D>", self._dump_diagnostics)
 
-        # ---- 加载上次的模版 ----
-        template_path = self.config.get("template_path", "")
-        if template_path and os.path.isfile(template_path):
-            try:
-                headers = load_template_headers(template_path)
-                if headers:
-                    self._reconfigure_columns(headers)
-                    self._has_template = True
-                    self._template_path = template_path
-                    logger.info("已恢复模版 | %s | %d 列", template_path, len(headers))
-            except Exception as e:
-                logger.warning("无法加载上次的模版: %s", e)
+        # ---- 应用当前模板（表头来自 app_config.json，不读内置模板文件）----
+        if not self._has_template:
+            self._apply_template_by_key(self._template_key)
 
         # ---- 恢复已保存数据 ----
         self._restore_saved_data()
@@ -471,16 +464,32 @@ class App:
             foreground="#666",
         ).pack(side=tk.LEFT)
 
-        # 导入模版按钮（模版与预制信息合并：表头=模版列，数据行=预制信息）
-        ttk.Button(
-            collect_toolbar, text="📂 导入模版",
-            command=self._import_template,
-        ).pack(side=tk.LEFT, padx=(8, 0))
+        # 模版下拉框（JD官网/SF 暂未开放，置灰不可选）
+        self._template_var = tk.StringVar(value=self._template_label(self._template_key))
+        template_labels = [o.get("label", o.get("key", "")) for o in self._template_options]
+        self._template_menu = tk.OptionMenu(
+            collect_toolbar, self._template_var, *template_labels,
+            command=self._on_template_selected,
+        )
+        self._template_menu.config(width=14)
+        self._template_menu.pack(side=tk.LEFT, padx=(8, 0))
+        for opt in self._template_options:
+            if not opt.get("enabled"):
+                self._template_menu["menu"].entryconfigure(
+                    opt.get("label", opt.get("key", "")), state="disabled"
+                )
+
         self._edit_prefill_btn = ttk.Button(
             collect_toolbar, text="✏️ 编辑预制信息",
             command=self._edit_prefill,
         )
         self._edit_prefill_btn.pack(side=tk.LEFT, padx=(6, 0))
+
+        self._define_fields_btn = ttk.Button(
+            collect_toolbar, text="📋 定义配置字段",
+            command=self._define_export_fields,
+        )
+        self._define_fields_btn.pack(side=tk.LEFT, padx=(6, 0))
         self._prefill_var = tk.StringVar(value="预制信息: 未导入")
         ttk.Label(
             collect_toolbar, textvariable=self._prefill_var,
@@ -553,7 +562,7 @@ class App:
         self._edit_col: int = -1
 
         # 初始化表格（默认三列）
-        self._setup_collect_table(DEFAULT_HEADERS)
+        self._setup_collect_table(DEFAULT_HEADERS, self._selected_export_fields or DEFAULT_HEADERS)
 
         paned.add(collect_frame, weight=4)
 
@@ -586,19 +595,20 @@ class App:
 
     # ======================== 动态列管理 ========================
 
-    def _setup_collect_table(self, headers: list[str]) -> None:
-        """根据 headers 构建 Treeview 表格。"""
+    def _setup_collect_table(self, headers: list[str], visible_headers: Optional[list[str]] = None) -> None:
+        """根据 headers 构建 Treeview 表格。
+
+        visible_headers 为用户在「定义配置字段」中勾选的导出字段（不含分类），
+        未传时使用完整模版表头。
+        """
         # 映射表头到字段（完整模版列）
         self._template_headers = headers
         self._mapped_fields = map_headers_to_fields(headers)
 
-        # 可见列：仅显示收件人（解析）字段，隐藏寄件人/预制/未映射列
-        visible = [
-            (h, f) for h, f in zip(headers, self._mapped_fields)
-            if _is_receiver_field(f)
-        ]
-        self._visible_headers = [h for h, _ in visible]
-        self._visible_fields = [f for _, f in visible]
+        # 可见列：仅展示勾选的导出字段，不展示字段分类
+        display_headers = list(visible_headers) if visible_headers is not None else list(headers)
+        self._visible_headers = display_headers
+        self._visible_fields = map_headers_to_fields(display_headers)
         n_cols = len(self._visible_headers)
 
         # 生成列 ID 和宽度（数据列 = 序号列 seq + 可见模版列）
@@ -685,7 +695,7 @@ class App:
         old_data = self._row_data[:]
 
         # 重建表格
-        self._setup_collect_table(new_headers)
+        self._setup_collect_table(new_headers, self._selected_export_fields or new_headers)
 
         # 重新填充数据
         self._row_data = []
@@ -698,82 +708,150 @@ class App:
         self._update_count_display()
         self._dirty = True
 
-    def _import_template(self) -> None:
-        """导入 Excel 模版：表头作为表格列，数据行（至多 2 行）作为预制信息档案。
+    def _template_label(self, key: str) -> str:
+        """根据模板 key 返回下拉框显示名。"""
+        for opt in self._template_options:
+            if opt.get("key") == key:
+                return opt.get("label", key)
+        return key
 
-        模版与预制信息合并：同一个 Excel 文件的表头即模版列，
-        若文件内附带数据行则同步作为预制信息（发送方信息）导入。
-        """
-        file_path = filedialog.askopenfilename(
-            title="选择模版 Excel（可含预制信息行）",
-            filetypes=[
-                ("Excel 文件", "*.xlsx;*.xls"),
-                ("新格式", "*.xlsx"),
-                ("旧格式", "*.xls"),
-            ],
+    def _on_template_selected(self, value: str) -> None:
+        """模板下拉框选择处理；未开放的模板保持默认并提示。"""
+        option = next(
+            (o for o in self._template_options if o.get("label") == value), None
         )
-        if not file_path:
+        if not option or not option.get("enabled"):
+            self._template_var.set(self._template_label(self._template_key))
+            messagebox.showinfo("暂未开放", "该模板暂未开放，当前仅支持 JD下单模板。")
             return
+        self._template_key = option["key"]
+        if self._apply_template_by_key(self._template_key):
+            self._selected_export_fields = self._load_export_field_selection()
+            self._reconfigure_columns(self._template_headers)
+            save_config(self.config)
+            self._flash_status(f"✅ 已切换到 {value}")
 
-        try:
-            headers, profiles = load_template_and_prefill(file_path, max_prefill_rows=2)
-        except ValueError as e:
-            messagebox.showerror("模版加载失败", str(e))
-            return
-        except Exception as e:
-            messagebox.showerror("模版加载失败", f"读取文件时出错:\n{str(e)}")
-            return
-
+    def _apply_template_by_key(self, key: str) -> bool:
+        """根据模板类型从 app_config.json 获取表头并应用到表格。"""
+        template_cfg = self.app_config.get("template_configs", {}).get(key, {})
+        headers = [
+            field
+            for cat in template_cfg.get("categories", [])
+            for field in cat.get("fields", [])
+        ]
         if not headers:
-            messagebox.showerror("模版加载失败", "Excel 文件中未找到有效的表头行")
-            return
-
-        prefill_note = ""
-        if profiles:
-            prefill_note = f"\n\n📥 检测到 {len(profiles)} 行预制信息，将在下一步确认。"
-        if not messagebox.askyesno(
-            "确认更换模版",
-            f"将使用以下模版替换当前表格列:\n\n"
-            f"文件: {os.path.basename(file_path)}\n"
-            f"列数: {len(headers)} 列\n\n"
-            f"现有数据将自动适配新列（无法匹配的列留空）。{prefill_note}\n继续？",
-        ):
-            return
-
-        # 应用模版列
+            logger.warning("模板 %s 尚未配置字段，跳过应用", key)
+            return False
         self._reconfigure_columns(headers)
         self._has_template = True
-        self._template_path = file_path
-        self.config["template_path"] = file_path
+        logger.info("已应用模板 %s | %d 列（来自 app_config.json）", key, len(headers))
+        return True
 
-        # 应用预制信息（同一文件的数据行）
-        if profiles:
-            new_profiles = [
-                {"enabled": True, "label": self._derive_prefill_label(values, j),
-                 "values": values}
-                for j, values in enumerate(profiles)
-            ]
-            confirmed = self._open_prefill_dialog(headers, new_profiles)
-            self._prefill_profiles = (
-                self._sanitize_prefill(confirmed) if confirmed is not None else []
-            )
-        else:
-            self._prefill_profiles = []
+    def _available_export_fields(self) -> list:
+        """返回当前模板配置中全部可导出字段。"""
+        cfg = self.app_config.get("template_configs", {}).get(self._template_key, {})
+        return [
+            field
+            for cat in cfg.get("categories", [])
+            for field in cat.get("fields", [])
+        ]
 
-        self.config["prefill_profiles"] = self._prefill_profiles
-        save_config(self.config)
-        self._update_prefill_status()
+    def _load_export_field_selection(self) -> list:
+        """读取用户保存的导出字段选择；无保存时默认全选。"""
+        available = self._available_export_fields()
+        saved = self.config.get("export_field_selection") or []
+        if saved:
+            return [f for f in available if f in saved]
+        return list(available)
 
-        matched = sum(1 for f in self._mapped_fields if f is not None)
-        enabled_n = sum(1 for p in self._prefill_profiles if p.get("enabled"))
-        status = f"📂 模版已加载: {len(headers)} 列，{matched} 列可自动填充"
-        if profiles:
-            status += f"；预制信息 {enabled_n}/{len(self._prefill_profiles)} 档案启用"
-        self._flash_status(status)
-        logger.info(
-            "模版已加载 | %s | %d 列 | %d 可映射 | %d 预制档案",
-            file_path, len(headers), matched, len(self._prefill_profiles),
+    def _selected_export_categories(self) -> list:
+        """按用户勾选结果过滤分类字段，返回 [(分类, [字段...]), ...]。"""
+        cats = self.app_config.get("template_configs", {}).get(self._template_key, {}).get("categories", [])
+        result = []
+        for cat in cats:
+            fields = [f for f in cat.get("fields", []) if f in self._selected_export_fields]
+            if fields:
+                result.append((cat.get("name", ""), fields))
+        return result
+
+    def _define_export_fields(self) -> None:
+        """打开「定义配置字段」对话框，按分类勾选导出字段。"""
+        categories = self.app_config.get("template_configs", {}).get(self._template_key, {}).get("categories", [])
+        if not categories:
+            messagebox.showinfo("提示", "当前模板暂未配置可导出字段")
+            return
+
+        dialog = tk.Toplevel(self._root)
+        dialog.title("定义配置字段")
+        dialog.transient(self._root)
+        dialog.grab_set()
+        dialog.geometry("760x600")
+
+        container = ttk.Frame(dialog)
+        container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        canvas = tk.Canvas(container, highlightthickness=0)
+        vsb = ttk.Scrollbar(container, orient=tk.VERTICAL, command=canvas.yview)
+        inner = ttk.Frame(canvas)
+        inner.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all")),
         )
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=vsb.set)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        vars_by_field: dict[str, tk.BooleanVar] = {}
+        for cat in categories:
+            cat_name = cat.get("name", "")
+            fields = cat.get("fields", [])
+            if not fields:
+                continue
+            ttk.Label(
+                inner, text=cat_name,
+                font=("Microsoft YaHei", 10, "bold"),
+            ).pack(anchor="w", pady=(8, 2))
+            frame = ttk.Frame(inner)
+            frame.pack(fill=tk.X)
+            for i, field in enumerate(fields):
+                var = tk.BooleanVar(value=field in self._selected_export_fields)
+                vars_by_field[field] = var
+                ttk.Checkbutton(frame, text=field, variable=var).grid(
+                    row=i // 3, column=i % 3, sticky="w", padx=8, pady=2,
+                )
+
+        btn_row = ttk.Frame(dialog)
+        btn_row.pack(fill=tk.X, padx=10, pady=(0, 10))
+
+        def select_all():
+            for var in vars_by_field.values():
+                var.set(True)
+
+        def select_none():
+            for var in vars_by_field.values():
+                var.set(False)
+
+        def confirm():
+            self._selected_export_fields = [
+                f for f, var in vars_by_field.items() if var.get()
+            ]
+            self.config["export_field_selection"] = self._selected_export_fields
+            save_config(self.config)
+            self._reconfigure_columns(self._template_headers)
+            dialog.destroy()
+            self._flash_status(
+                f"📋 已保存 {len(self._selected_export_fields)} 个导出字段"
+            )
+
+        ttk.Button(btn_row, text="全选", command=select_all).pack(side=tk.LEFT)
+        ttk.Button(btn_row, text="全不选", command=select_none).pack(
+            side=tk.LEFT, padx=(6, 0)
+        )
+        ttk.Button(btn_row, text="确定", command=confirm).pack(side=tk.RIGHT)
+        ttk.Button(
+            btn_row, text="取消", command=dialog.destroy,
+        ).pack(side=tk.RIGHT, padx=(0, 6))
 
     # ======================== 预制信息 ========================
 
@@ -1625,36 +1703,27 @@ class App:
         else:
             messagebox.showinfo("提示", "收集区为空")
 
-    def _export_headers(self) -> tuple[list[str], list[Optional[str]]]:
-        """导出固定使用「多发货地标准模版」33列格式（与界面加载模版解耦）。"""
-        multi_path = resource_path("data/快递下单_多个发货地-标准模板V1.0A.xls")
-        try:
-            if os.path.isfile(multi_path):
-                headers = load_template_headers(multi_path)
-                if headers:
-                    return headers, map_headers_to_fields(headers)
-        except Exception as e:
-            logger.warning("读取多发货地标准模版失败，回退默认列: %s", e)
-        return DEFAULT_HEADERS, map_headers_to_fields(DEFAULT_HEADERS)
-
     def _export_excel(self) -> None:
-        """导出：已收集文本(收件人) + 预制信息(寄件人) 拼接到「多发货地标准模版」列格式。"""
+        """按用户定义配置字段导出双行表头 Excel。"""
         if not self._row_data:
             messagebox.showinfo("提示", "没有数据可导出")
             return
 
-        headers, mapped = self._export_headers()
+        categories = self._selected_export_categories()
+        if not categories:
+            messagebox.showinfo("提示", "未选择任何导出字段，请先点击「定义配置字段」进行配置")
+            return
 
-        # 从解析结果重建每行（收件人列有值，寄件人列留空）
+        headers = flatten_categories(categories)
+        mapped = [EXPORT_FIELD_MAP.get(h) for h in headers]
+
         rows = []
         for data in self._row_data:
             fields = data.get("fields", {})
             rows.append(list(build_row_tuple(fields, mapped)))
 
-        # 合并预制信息（填充寄件人/发货仓/物品/时效/温层等空列）
         rows = self._merge_prefill(rows, headers)
 
-        # 弹出保存对话框
         default_name = f"产地快打_导出_{time.strftime('%Y%m%d_%H%M%S')}.xlsx"
         file_path = filedialog.asksaveasfilename(
             title="导出 Excel",
@@ -1663,7 +1732,7 @@ class App:
             initialfile=default_name,
         )
         if not file_path:
-            return  # 用户取消
+            return
 
         try:
             import openpyxl
@@ -1677,49 +1746,12 @@ class App:
             return
 
         try:
-            wb = openpyxl.Workbook()
-            ws = wb.active
-            ws.title = "产地快打导出"
-
-            header_font = openpyxl.styles.Font(bold=True, size=11)
-            header_fill = openpyxl.styles.PatternFill(
-                start_color="D9E1F2", end_color="D9E1F2", fill_type="solid"
-            )
-            header_alignment = openpyxl.styles.Alignment(
-                horizontal="center", vertical="center"
-            )
-
-            # 表头
-            for col_idx, header in enumerate(headers, 1):
-                cell = ws.cell(row=1, column=col_idx, value=header)
-                cell.font = header_font
-                cell.fill = header_fill
-                cell.alignment = header_alignment
-
-            # 数据行
-            for row_idx, row_data in enumerate(rows, 2):
-                for col_idx, value in enumerate(row_data, 1):
-                    ws.cell(row=row_idx, column=col_idx, value=str(value))
-
-            # 自动调整列宽
-            for col_idx, field_path in enumerate(mapped, 1):
-                width = compute_column_width(field_path)
-                # 转换为 Excel 字符宽度（px → char，大约 7px/char）
-                ws.column_dimensions[
-                    openpyxl.utils.get_column_letter(col_idx)
-                ].width = max(8, width // 7)
-
-            # 冻结首行
-            ws.freeze_panes = "A2"
-
-            # 保存
-            wb.save(file_path)
+            write_export_excel(file_path, categories, rows)
             self._flash_status(f"✅ 已导出 {len(rows)} 条记录到 Excel")
             logger.info(
                 "Excel 导出完成 | %s | %d 条记录 | %d 列",
                 file_path, len(rows), len(headers),
             )
-
         except PermissionError:
             show_error_dialog(
                 "保存失败",
@@ -2284,8 +2316,8 @@ class App:
                     "active" if self._dc_poll_id else "None")
         logger.info("  clip_len=%d | preview_len=%d | last_clip_len=%d",
                     clip_len, preview_len, len(self._last_clipboard))
-        logger.info("  row_count=%d | has_template=%s | template_path=%s",
-                    len(self._row_data), self._has_template, self._template_path or "无")
+        logger.info("  row_count=%d | has_template=%s",
+                    len(self._row_data), self._has_template)
         logger.info("  errors=%d (%d/min) | cooldown=%.1fs left",
                     self._error_count, len(self._error_timestamps),
                     max(0, self._dc_cooldown_until - time.time()))

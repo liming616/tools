@@ -47,6 +47,33 @@ class LoadAppConfigTest(unittest.TestCase):
             config = config_manager.load_app_config()
         self.assertEqual(config, config_manager.DEFAULT_APP_CONFIG)
 
+    def test_nested_template_config_loaded(self):
+        self._write({
+            "app_name": "产地快打",
+            "version": "v1.0.0",
+            "templates": {
+                "default": "JD",
+                "options": [
+                    {"key": "JD", "label": "JD下单模板", "enabled": True},
+                    {"key": "SF", "label": "SF下单模板", "enabled": False},
+                ],
+            },
+            "template_configs": {
+                "JD": {
+                    "header_style": "double_row",
+                    "categories": [{"name": "绑定单号", "fields": ["商家订单号"]}],
+                }
+            },
+        })
+        with patch("config_manager.resource_path", return_value=self._config_path()):
+            config = config_manager.load_app_config()
+        self.assertEqual(config["templates"]["default"], "JD")
+        self.assertFalse(config["templates"]["options"][1]["enabled"])
+        self.assertEqual(
+            config["template_configs"]["JD"]["categories"][0]["fields"],
+            ["商家订单号"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

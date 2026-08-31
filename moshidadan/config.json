@@ -12,7 +12,6 @@
   "max_errors_per_minute": 10,
   "auto_save_interval_s": 120,
   "log_retention_days": 30,
-  "template_path": "C:/Users/liming/Documents/tools/moshidadan/data/快递下单_多个发货地-标准模板V1.0A.xls",
   "prefill_profiles": [],
   "version": 2
 }

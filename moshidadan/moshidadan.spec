@@ -48,6 +48,7 @@ a = Analysis(
         'clipboard_monitor',
         'clipboard_worker',
         'single_instance',
+        'excel_exporter',
         'config_manager',
         'logger',
         'crash_handler',

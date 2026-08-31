@@ -27,6 +27,15 @@ APP_CONFIG_FILE = "app_config.json"
 DEFAULT_APP_CONFIG = {
     "app_name": "产地快打",
     "version": "v1.0.0",
+    "templates": {
+        "default": "JD",
+        "options": [
+            {"key": "JD", "label": "JD下单模板", "enabled": True},
+            {"key": "JD_OFFICIAL", "label": "JD官网下单模板", "enabled": False},
+            {"key": "SF", "label": "SF下单模板", "enabled": False},
+        ],
+    },
+    "template_configs": {},
 }
 
 # 配置 Schema 定义
@@ -41,8 +50,8 @@ CONFIG_SCHEMA = {
     "max_errors_per_minute": int,   # 1-100
     "auto_save_interval_s": int,    # 30-3600
     "log_retention_days": int,      # 1-365
-    "template_path": str,           # Excel模版路径
     "prefill_profiles": list,       # 预制信息档案列表
+    "export_field_selection": list, # 用户勾选的导出字段
     "version": int,                 # schema version
 }
 
@@ -57,8 +66,8 @@ DEFAULT_CONFIG = {
     "max_errors_per_minute": 10,
     "auto_save_interval_s": 120,
     "log_retention_days": 30,
-    "template_path": "",
     "prefill_profiles": [],
+    "export_field_selection": [],
     "version": CONFIG_VERSION,
 }
 
@@ -253,6 +262,8 @@ def load_app_config() -> dict:
                 value = raw.get(key)
                 if isinstance(value, str) and value.strip():
                     config[key] = value.strip()
+                elif isinstance(value, (dict, list)):
+                    config[key] = deepcopy(value)
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         pass
     return config
