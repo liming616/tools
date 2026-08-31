@@ -413,7 +413,7 @@ class App:
         ).pack(side=tk.LEFT)
 
         self._transfer_btn = ttk.Button(
-            preview_btns, text="📥 转储到文本区",
+            preview_btns, text="📥 文本识别",
             command=self._transfer,
         )
         self._transfer_btn.pack(side=tk.RIGHT)
@@ -432,7 +432,7 @@ class App:
             value=self.config.get("auto_transfer", False)
         )
         self._auto_cb = ttk.Checkbutton(
-            preview_btns, text="自动转储", variable=self._auto_var,
+            preview_btns, text="自动识别", variable=self._auto_var,
             command=self._toggle_auto,
         )
         self._auto_cb.pack(side=tk.RIGHT, padx=(0, 12))
@@ -765,15 +765,16 @@ class App:
             return [f for f in available if f in saved]
         return list(available)
 
-    def _selected_export_categories(self) -> list:
-        """按用户勾选结果过滤分类字段，返回 [(分类, [字段...]), ...]。"""
-        cats = self.app_config.get("template_configs", {}).get(self._template_key, {}).get("categories", [])
-        result = []
-        for cat in cats:
-            fields = [f for f in cat.get("fields", []) if f in self._selected_export_fields]
-            if fields:
-                result.append((cat.get("name", ""), fields))
-        return result
+    def _all_export_categories(self) -> list:
+        """返回当前模板配置中全部分类及字段，不随用户勾选结果变化。"""
+        cats = self.app_config.get("template_configs", {}).get(
+            self._template_key, {}
+        ).get("categories", [])
+        return [
+            (cat.get("name", ""), list(cat.get("fields", [])))
+            for cat in cats
+            if cat.get("fields")
+        ]
 
     def _define_export_fields(self) -> None:
         """打开「定义配置字段」对话框，按分类勾选导出字段。"""
@@ -1302,7 +1303,7 @@ class App:
         self.config["auto_transfer"] = self._auto_var.get()
         save_config(self.config)
         if self._auto_var.get():
-            self._flash_status("🔄 自动转储已开启")
+            self._flash_status("🔄 自动识别已开启")
 
     def _toggle_restore(self) -> None:
         """切换启动恢复上次数据开关。"""
@@ -1633,14 +1634,23 @@ class App:
             messagebox.showinfo("提示", "收集区为空")
 
     def _export_excel(self) -> None:
-        """按用户定义配置字段导出双行表头 Excel。"""
+        """按模板配置的全量字段导出双行表头 Excel，不受「定义配置字段」勾选影响。"""
         if not self._row_data:
             messagebox.showinfo("提示", "没有数据可导出")
             return
 
-        categories = self._selected_export_categories()
+        categories = self._all_export_categories()
         if not categories:
-            messagebox.showinfo("提示", "未选择任何导出字段，请先点击「定义配置字段」进行配置")
+            messagebox.showinfo("提示", "当前模板暂未配置可导出字段")
+            return
+
+        enabled_prefill = [p for p in self._prefill_profiles if p.get("enabled")]
+        missing = self._validate_prefill(self._single_prefill_values(enabled_prefill))
+        if missing:
+            messagebox.showwarning(
+                "预制信息未填写",
+                "预制信息未填写完整，请先点击「编辑预制信息」补充后再导出 Excel。",
+            )
             return
 
         headers = flatten_categories(categories)
