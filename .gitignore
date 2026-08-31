@@ -5,6 +5,7 @@ target/
 !**/src/test/**/target/
 .gradle/
 .joycode/
+.agents/
 .mvn
 
 ### STS ###
@@ -23,6 +24,12 @@ target/
 *.ipr
 *.log*
 logs/
+.vscode/
+*/dist/
+*/build/
+*/data/
+*/logs/
+.vscode/
 
 ### NetBeans ###
 /nbproject/private/
