@@ -76,7 +76,7 @@ VK_LBUTTON = 0x01
 # ======================== 主应用 ========================
 
 # 预制信息弹窗固定展示字段；其中手机/座机二选一必填，其余字段必填
-PREFILL_FIELDS = ["寄件人姓名", "寄件人手机", "寄件人座机", "寄件人地址", "物品类型", "时效产品"]
+PREFILL_FIELDS = ["寄件人姓名", "寄件人手机", "寄件人座机", "寄件人地址", "物品类型", "时效产品", "温层"]
 PREFILL_REQUIRED_FIELDS = ["寄件人姓名", "寄件人地址", "物品类型", "时效产品"]
 
 
@@ -261,11 +261,9 @@ class App:
                 self._last_clipboard = text
                 self._set_preview(text)
 
-                # 自动转储（仅微信窗口）
+                # 自动转储（自动识别开启时直接进入列表）
                 if not self._degraded and self._auto_var.get():
-                    wx_keywords = self.config.get("wechat_keywords", ["微信", "WeChat"])
-                    if is_wechat_active(wx_keywords):
-                        self._transfer()
+                    self._transfer()
 
             # 降级模式：自动恢复
             if self._degraded and not self._dc_paused:
@@ -906,10 +904,11 @@ class App:
     def _open_prefill_dialog(self, headers: list[str], profiles: list[dict]):
         """打开预制信息确认子窗口（单一预制信息，无档案勾选）。
 
-        仅展示 PREFILL_FIELDS 六个字段；返回确认后的 profiles 或 None（取消）。
+        仅展示 PREFILL_FIELDS 固定字段；返回确认后的 profiles 或 None（取消）。
         """
         display_headers = list(PREFILL_FIELDS)
         values = self._single_prefill_values(profiles)
+        prefill_defaults = self.app_config.get("prefill_defaults") or {}
 
         top = tk.Toplevel(self._root)
         top.title("预制信息确认")
@@ -927,7 +926,11 @@ class App:
         body.pack(fill=tk.BOTH, expand=True, padx=pad, pady=4)
 
         value_vars = {
-            h: tk.StringVar(value=values.get(h, "")) for h in display_headers
+            h: tk.StringVar(
+                value=values.get(h)
+                or str(prefill_defaults.get(h, "")).strip()
+            )
+            for h in display_headers
         }
         for i, h in enumerate(display_headers):
             ttk.Label(body, text=h).grid(
@@ -1058,16 +1061,23 @@ class App:
             )
 
     def _merge_prefill(self, rows: list[list], headers: Optional[list[str]] = None) -> list[list]:
-        """把已启用的预制信息合并到导出行（仅填充留空列，后勾选档案覆盖前者）。"""
+        """把已启用的预制信息补到导出行的非展示列（仅填充留空列）。
+
+        表格可见列以用户看到的数据为准，不再用预制信息覆盖；
+        未在表格展示的模板列若为空，则用预制信息自动赋值。
+        """
         if headers is None:
             headers = self._template_headers
         enabled = [p for p in self._prefill_profiles if p.get("enabled")]
         if not enabled or not headers:
             return rows
 
-        # 对每一列，取「最后一个启用档案」提供的非空值
+        visible_headers = set(self._visible_headers)
+        # 仅对非展示列，取「最后一个启用档案」提供的非空值
         prefill_by_col: dict[int, str] = {}
         for col_idx, header in enumerate(headers):
+            if header in visible_headers:
+                continue
             for p in enabled:
                 v = (p.get("values") or {}).get(header, "")
                 if v:
@@ -1090,12 +1100,16 @@ class App:
     # ======================== 预览区操作 ========================
 
     def _set_preview(self, text: str) -> None:
-        """更新预览区内容。"""
+        """把剪贴板内容追加到预览区（未开启自动识别时逐条累积）。"""
         try:
-            self._preview_text.delete("1.0", tk.END)
-            self._preview_text.insert("1.0", text)
+            existing = self._preview_text.get("1.0", tk.END).strip()
+            if existing:
+                self._preview_text.insert(tk.END, "\n" + text)
+            else:
+                self._preview_text.insert("1.0", text)
 
-            self._preview_info_var.set(f"{len(text)} 字符")
+            total_len = len(self._preview_text.get("1.0", tk.END).strip())
+            self._preview_info_var.set(f"{total_len} 字符")
             self._transfer_btn.configure(state=tk.NORMAL)
 
             source = get_foreground_title()
@@ -1244,7 +1258,8 @@ class App:
             fields["full_address"] = fields["full_address"] or parsed_addr.full_address
         fields["items"] = order.items or []
         fields["notes"] = order.notes or ""
-        fields["raw"] = line
+        # 未识别内容已并入面单备注，自定义信息不再整体存放原始文本
+        fields["raw"] = ""
 
         # 将编辑好的预制信息填入该记录对应的寄件人字段，列表即可直接展示
         self._apply_prefill_sender_fields(fields)
@@ -1688,6 +1703,23 @@ class App:
             rows.append(list(build_row_tuple(fields, mapped)))
 
         rows = self._merge_prefill(rows, headers)
+
+        # 时效产品必填校验（以最终导出行为准）
+        if "时效产品" in headers:
+            product_col = headers.index("时效产品")
+            missing_rows = [
+                idx for idx, row in enumerate(rows, start=1)
+                if not str(row[product_col]).strip()
+            ]
+            if missing_rows:
+                detail = "、".join(str(i) for i in missing_rows[:20])
+                if len(missing_rows) > 20:
+                    detail += " 等"
+                messagebox.showwarning(
+                    "时效产品未填写",
+                    "以下记录缺少时效产品，请补充后再导出：\n\n第 " + detail + " 条",
+                )
+                return
 
         default_name = f"产地快打_导出_{time.strftime('%Y%m%d_%H%M%S')}.xlsx"
         file_path = filedialog.asksaveasfilename(
@@ -2441,6 +2473,7 @@ class App:
         default_values = {
             "items_text": values.get("物品类型", ""),
             "delivery_product": values.get("时效产品", ""),
+            "temperature_layer": values.get("温层", ""),
         }
         for field_path, value in default_values.items():
             if not str(fields.get(field_path, "")).strip() and str(value).strip():

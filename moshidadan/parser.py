@@ -416,6 +416,11 @@ def parse_order(text: str) -> OrderInfo:
                 if items:
                     order.items.extend(items)
 
+    # 未识别出的内容归入面单备注，避免整体落入自定义信息
+    unrecognized = _unrecognized_text(text, order, consumed_ranges)
+    if unrecognized:
+        order.notes = ((order.notes + "\n") if order.notes else "") + unrecognized
+
     return order
 
 
@@ -668,6 +673,25 @@ def _is_in_consumed(m: re.Match, ranges: list[tuple[int, int]]) -> bool:
     """检查匹配是否在已消费范围内。"""
     s, e = m.start(), m.end()
     return any(cs <= s and e <= ce for cs, ce in ranges)
+
+
+def _unrecognized_text(text: str, order: OrderInfo,
+                       consumed_ranges: list[tuple[int, int]]) -> str:
+    """从原始文本中扣除已识别字段，返回未识别内容（用于面单备注）。"""
+    remaining = text
+    # 先移除已消费的标签整段（姓名/电话/座机/地址/商品/备注等）
+    for s, e in sorted(consumed_ranges, reverse=True):
+        remaining = remaining[:s] + " " + remaining[e:]
+    # 再移除无标签识别出的字段值
+    tokens = [
+        t for t in (order.name, order.phone, order.landline, order.address) if t
+    ]
+    tokens += [it.get("raw", "") for it in order.items if it.get("raw")]
+    for tok in sorted(tokens, key=len, reverse=True):
+        remaining = remaining.replace(tok, " ", 1)
+    # 清理空白与分隔符，避免整行残渣进入备注
+    remaining = re.sub(r'[\s，,、;；:：\-]+', ' ', remaining).strip(" ，,、;；:：-")
+    return remaining
 
 
 # ---------- 格式化输出 ----------

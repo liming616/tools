@@ -49,6 +49,7 @@ FIELD_DESCRIPTORS: list[tuple[str, str, list[str]]] = [
     ("full_detail",    "详细地址",  ["详细地址", "具体地址"]),
     ("items_text",     "商品",     ["物品类型", "商品名称", "货品", "货物名称"]),
     ("delivery_product", "时效产品", ["时效产品", "产品时效", "时效"]),
+    ("temperature_layer", "温层", ["温层", "温度层", "温区"]),
     ("notes",          "备注",     ["面单备注", "订单备注", "备注", "留言", "说明"]),
     ("raw",            "原始文本",  ["原文", "原始文本", "完整信息", "自定义信息"]),
     ("company",        "公司",     ["收件人公司", "公司", "单位", "企业"]),
@@ -379,7 +380,8 @@ def empty_fields_dict() -> dict:
         "district": "", "township": "", "road": "", "community": "",
         "building": "", "unit": "", "room": "",
         "full_address": "", "full_detail": "",
-        "items": [], "items_text": "", "delivery_product": "", "notes": "", "raw": "",
+        "items": [], "items_text": "", "delivery_product": "",
+        "temperature_layer": "", "notes": "", "raw": "",
         "company": "", "qq": "",
         # 寄件人 / 发货方（来自预制信息）
         "sender_name": "", "sender_phone": "", "sender_landline": "", "sender_address": "",
@@ -401,7 +403,7 @@ def compute_column_width(field_path: Optional[str]) -> int:
                      "township", "road", "community", "landmark",
                      "building", "unit", "room", "company",
                      "sender_name", "sender_phone", "sender_landline", "sender_company",
-                     "sender_warehouse_code"}
+                     "sender_warehouse_code", "temperature_layer"}
 
     if field_path in wide_fields:
         return 250

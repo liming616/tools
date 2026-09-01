@@ -25,6 +25,7 @@ def make_app(selected_fields):
         }
     }
     app._selected_export_fields = list(selected_fields)
+    app._visible_headers = list(selected_fields)
     app._row_data = [{"fields": {"name": "张三", "phone": "13800138000"}}]
     app._prefill_profiles = [{
         "enabled": True,
@@ -92,6 +93,16 @@ class ExportAllFieldsTest(unittest.TestCase):
         self.assertEqual(len(app._undo_data), 1)
         app._collect_table.delete.assert_called_once_with("item1")
         app._undo_btn.configure.assert_called_once_with(state="normal")
+
+    def test_merge_prefill_only_fills_non_visible_columns(self):
+        app = make_app(["收件人姓名", "寄件人手机"])
+        headers = ["寄件人姓名", "寄件人手机", "收件人姓名", "收件人电话"]
+        rows = [["", "", "张三", "13800138000"]]
+        merged = app._merge_prefill(rows, headers)
+        # 可见列「寄件人手机」表格为空 → 导出为空，不被预制覆盖
+        self.assertEqual(merged[0][1], "")
+        # 未展示列「寄件人姓名」为空 → 用预制信息自动补值
+        self.assertEqual(merged[0][0], "张三")
 
     def test_export_excel_blocks_when_prefill_empty(self):
         app = make_app(["收件人姓名"])

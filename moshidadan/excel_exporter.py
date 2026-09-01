@@ -23,6 +23,7 @@ EXPORT_FIELD_MAP = {
     "收件人公司": "company",
     "物品类型": "items_text",
     "时效产品": "delivery_product",
+    "温层": "temperature_layer",
     "面单备注": "notes",
     "自定义信息": "raw",
 }
