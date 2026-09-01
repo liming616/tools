@@ -1258,8 +1258,17 @@ class App:
             fields["full_detail"] = parsed_addr.full_detail
         if parsed_addr.full_address:
             fields["full_address"] = fields["full_address"] or parsed_addr.full_address
-        fields["items"] = order.items or []
-        fields["notes"] = order.notes or ""
+        # 除收件人姓名/手机/座机/地址外，其余内容统一并入面单备注，不识别到物品类型
+        item_raw = "，".join(
+            str(it.get("raw") or it.get("name", ""))
+            for it in (order.items or [])
+            if it.get("raw") or it.get("name")
+        )
+        notes = order.notes or ""
+        if item_raw:
+            notes = (notes + "\n" if notes else "") + item_raw
+        fields["items"] = []
+        fields["notes"] = notes
         # 未识别内容已并入面单备注，自定义信息不再整体存放原始文本
         fields["raw"] = ""
 
@@ -2470,7 +2479,7 @@ class App:
     def _apply_prefill_default_fields(self, fields: dict) -> dict:
         """把预制信息的物品类型/时效产品填入列表字段（仅填空值）。
 
-        识别到物品时 fields["items"] 非空，列表/导出的 items_text 由识别结果覆盖；
+        文本识别不再产生物品类型，items_text 仅来自预制信息；
         预制信息配置本身不会被修改。
         """
         enabled = [p for p in self._prefill_profiles if p.get("enabled")]
