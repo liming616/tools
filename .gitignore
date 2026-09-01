@@ -24,12 +24,10 @@ target/
 *.ipr
 *.log*
 logs/
-.vscode/
 */dist/
 */build/
 */data/
 */logs/
-.vscode/
 
 ### NetBeans ###
 /nbproject/private/
