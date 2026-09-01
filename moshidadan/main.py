@@ -1,10 +1,10 @@
 """
 产地快打 v7 — 生产版
-剪贴板实时预览 + 全局连击复制转储 + 生产级稳定性保障
+剪贴板实时预览 + 全局连击复制到预览 + 生产级稳定性保障
 
 流程:
   1. 用户在任何应用中 Ctrl+C 复制文本 → 预览区实时显示
-  2. 全局连击：在任意应用中双击/三击选中文本 → 自动发送 Ctrl+C → 转储
+  2. 全局连击：在任意应用中双击/三击选中文本 → 自动发送 Ctrl+C → 复制到预览
   3. 用户点击「转储」→ 文本追加到收集区
   4. 可「复制全部」或「清空」
 
@@ -346,7 +346,7 @@ class App:
         hint.pack(fill=tk.X, padx=pad_x)
         ttk.Label(
             hint,
-            text="💡 双击(选词)/三击(选行) → 自动复制+转储 | 或 Ctrl+C → 点「转储」",
+            text="💡 双击(选词)/三击(选行) → 自动复制到预览 | 或 Ctrl+C → 点「文本识别」",
             font=("Microsoft YaHei", 8),
             foreground="#999",
         ).pack(anchor=tk.W)
@@ -1515,7 +1515,7 @@ class App:
         self._dc_fire_id = self._root.after(self._dc_settle_ms, self._dc_fire)
 
     def _dc_fire(self) -> None:
-        """连击序列稳定后触发：Ctrl+C → 等待剪贴板 → 转储（仅执行一次）。"""
+        """连击序列稳定后触发：Ctrl+C → 等待剪贴板 → 复制到预览（仅执行一次）。"""
         self._dc_fire_id = None
         if not self._running or not self._dc_enabled or self._dc_paused:
             return
@@ -1538,13 +1538,13 @@ class App:
         self._dc_cooldown_until = now + self._dc_cooldown_s
         self._dc_click_count = 0
 
-        # === 直接链路：Ctrl+C → 等待剪贴板 → 转储（带自校验与重试）===
+        # === 直接链路：Ctrl+C → 等待剪贴板 → 复制到预览（带自校验与重试）===
         prev_clip = self._last_clipboard
         new_text = self._capture_with_retry(prev_clip)
         if new_text:
             self._last_clipboard = new_text
             self._set_preview(new_text)
-            self._transfer(text=new_text)
+            self._flash_status("📋 已复制到预览区，可编辑后点击「文本识别」转储")
         else:
             logger.warning(
                 "连击采集失败（多次重试后剪贴板仍未变化）| prev_len=%d | fg=%s",
