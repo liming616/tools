@@ -27,7 +27,7 @@ class LoadAppConfigTest(unittest.TestCase):
         with patch("config_manager.resource_path", return_value=self._config_path()):
             config = config_manager.load_app_config()
         self.assertEqual(config["app_name"], "产地快打")
-        self.assertEqual(config["version"], "v1.0.1")
+        self.assertEqual(config["version"], "v1.0.2")
 
     def test_missing_file_returns_default(self):
         with patch("config_manager.resource_path", return_value=self._config_path()):

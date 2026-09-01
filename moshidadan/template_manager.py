@@ -21,8 +21,8 @@ DEFAULT_HEADERS = ["姓名", "手机号", "地址"]
 FIELD_DESCRIPTORS: list[tuple[str, str, list[str]]] = [
     # ---- 寄件人 / 发货方（来自预制信息，订单解析不填充）----
     ("sender_name",           "寄件人姓名", ["寄件人姓名", "发货人姓名", "发件人姓名"]),
-    ("sender_phone",          "寄件人手机", ["寄件人手机", "寄件人座机", "发货人手机",
-                                             "发件人手机", "发货人座机", "发货人电话"]),
+    ("sender_phone",          "寄件人手机", ["寄件人手机", "发货人手机", "发件人手机", "发货人电话"]),
+    ("sender_landline",       "寄件人座机", ["寄件人座机", "发货人座机", "发件人座机", "发货人固话"]),
     ("sender_address",        "寄件人地址", ["寄件人地址", "发货人地址", "发件人地址",
                                              "发货地址", "寄件地址"]),
     ("sender_company",        "寄件人公司", ["寄件人公司", "发货人公司", "发件人公司"]),
@@ -31,8 +31,9 @@ FIELD_DESCRIPTORS: list[tuple[str, str, list[str]]] = [
     # ---- 收件人 / 收货方（来自订单解析）----
     ("name",           "姓名",     ["收件人姓名", "收货人", "收件人", "客户",
                                      "联系人", "名字", "下单人", "姓名"]),
-    ("phone",          "手机号",   ["收件人手机", "收件人座机", "手机号", "联系电话",
-                                     "联系方式", "电话", "手机", "座机", "号码"]),
+    ("phone",          "手机号",   ["收件人手机", "收件人电话", "手机号", "联系电话",
+                                     "联系方式", "电话", "手机", "号码"]),
+    ("landline",       "座机",     ["收件人座机", "座机", "固话"]),
     ("province",       "省",       ["省份", "省"]),
     ("city",           "市",       ["城市", "市"]),
     ("district",       "区/县",    ["区县", "地区", "区域", "区", "县"]),
@@ -47,6 +48,7 @@ FIELD_DESCRIPTORS: list[tuple[str, str, list[str]]] = [
                                      "地址"]),
     ("full_detail",    "详细地址",  ["详细地址", "具体地址"]),
     ("items_text",     "商品",     ["物品类型", "商品名称", "货品", "货物名称"]),
+    ("delivery_product", "时效产品", ["时效产品", "产品时效", "时效"]),
     ("notes",          "备注",     ["面单备注", "订单备注", "备注", "留言", "说明"]),
     ("raw",            "原始文本",  ["原文", "原始文本", "完整信息", "自定义信息"]),
     ("company",        "公司",     ["收件人公司", "公司", "单位", "企业"]),
@@ -373,14 +375,14 @@ def _resolve_field(fields: dict, field_path: str) -> str:
 def empty_fields_dict() -> dict:
     """返回一个所有已知字段为空的字典，作为 fields 模板。"""
     fields = {
-        "name": "", "phone": "", "province": "", "city": "",
+        "name": "", "phone": "", "landline": "", "province": "", "city": "",
         "district": "", "township": "", "road": "", "community": "",
         "building": "", "unit": "", "room": "",
         "full_address": "", "full_detail": "",
-        "items": [], "items_text": "", "notes": "", "raw": "",
+        "items": [], "items_text": "", "delivery_product": "", "notes": "", "raw": "",
         "company": "", "qq": "",
         # 寄件人 / 发货方（来自预制信息）
-        "sender_name": "", "sender_phone": "", "sender_address": "",
+        "sender_name": "", "sender_phone": "", "sender_landline": "", "sender_address": "",
         "sender_company": "", "sender_warehouse_code": "",
         # 地址解析特有字段（备用）
         "development_zone": "", "landmark": "",
@@ -393,12 +395,12 @@ def compute_column_width(field_path: Optional[str]) -> int:
     if field_path is None:
         return 70
 
-    wide_fields = {"full_address", "full_detail", "items_text", "notes", "raw",
-                   "sender_address"}
-    medium_fields = {"name", "phone", "province", "city", "district",
+    wide_fields = {"full_address", "full_detail", "items_text", "delivery_product",
+                   "notes", "raw", "sender_address"}
+    medium_fields = {"name", "phone", "landline", "province", "city", "district",
                      "township", "road", "community", "landmark",
                      "building", "unit", "room", "company",
-                     "sender_name", "sender_phone", "sender_company",
+                     "sender_name", "sender_phone", "sender_landline", "sender_company",
                      "sender_warehouse_code"}
 
     if field_path in wide_fields:

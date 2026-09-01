@@ -30,6 +30,7 @@ class OrderInfo:
     """订单信息"""
     name: str = ""
     phone: str = ""
+    landline: str = ""  # 座机，与手机分开存储
     address: str = ""
     items: list[dict] = field(default_factory=list)  # [{name, spec, qty, price}]
     notes: str = ""
@@ -44,6 +45,9 @@ RE_PHONE = re.compile(r'1[3-9]\d{9}')
 # 固话
 RE_LANDLINE = re.compile(r'(?:\d{3,4}-)?\d{7,8}')
 
+# 带边界的固话（避免从手机号中截取子串）
+RE_LANDLINE_BOUNDED = re.compile(r'(?<!\d)(?:(?:\d{3,4}-)?\d{7,8})(?!\d)')
+
 # 姓名模式（中文 2-4 字，前面可能有标签）
 RE_NAME_TAGGED = re.compile(
     r'(?:收货人|收件人|联系人|客户|姓名|名字|下单人)[：:]\s*([一-龥]{2,4})'
@@ -53,6 +57,16 @@ RE_NAME_STANDALONE = re.compile(r'^([一-龥]{2,3})$', re.MULTILINE)
 # 电话标签
 RE_PHONE_TAGGED = re.compile(
     r'(?:电话|手机|联系方式|号码|联系电话|手机号|手机号码|联系)[：:]\s*(\d[\d\-]{6,15})'
+)
+
+# 手机标签（语义独立：只填手机字段）
+RE_MOBILE_TAGGED = re.compile(
+    r'(?:手机|手机号|手机号码)[：:]\s*(\d[\d\-]{6,15})'
+)
+
+# 座机标签（语义独立：只填座机字段）
+RE_LANDLINE_TAGGED = re.compile(
+    r'(?:座机|固话|座机电话)[：:]\s*(\d[\d\-]{6,15})'
 )
 
 # 地址标签（贪婪匹配到行尾）
@@ -176,6 +190,16 @@ RE_ADDR_KEYWORD = re.compile(
 )
 
 
+def _classify_phone(value: str) -> str:
+    """区分手机号与座机：返回 'mobile' / 'landline' / ''。"""
+    v = str(value or "").strip()
+    if RE_PHONE_FULLMATCH.fullmatch(v):
+        return "mobile"
+    if RE_LANDLINE_FULLMATCH.fullmatch(v):
+        return "landline"
+    return ""
+
+
 def parse_order(text: str) -> OrderInfo:
     """
     从一段文本中解析出订单信息。
@@ -203,10 +227,24 @@ def parse_order(text: str) -> OrderInfo:
         order.name = m.group(1)
         mark_consumed(m)
 
-    # 电话（标签）
-    m = RE_PHONE_TAGGED.search(text)
+    # 电话（标签）：手机/座机语义分开，互不赋值
+    m = RE_MOBILE_TAGGED.search(text)
     if m:
         order.phone = m.group(1)
+        mark_consumed(m)
+
+    m = RE_LANDLINE_TAGGED.search(text)
+    if m:
+        order.landline = m.group(1)
+        mark_consumed(m)
+
+    m = RE_PHONE_TAGGED.search(text)
+    if m and not _is_in_consumed(m, consumed_ranges):
+        phone_value = m.group(1)
+        if _classify_phone(phone_value) == "landline":
+            order.landline = order.landline or phone_value
+        else:
+            order.phone = order.phone or phone_value
         mark_consumed(m)
 
     # 地址（标签）
@@ -236,6 +274,13 @@ def parse_order(text: str) -> OrderInfo:
                 order.phone = m.group()
                 break
 
+    # 座机（全局扫描，带边界避免截取手机号子串）
+    if not order.landline:
+        for m in RE_LANDLINE_BOUNDED.finditer(text):
+            if not _is_in_consumed(m, consumed_ranges):
+                order.landline = m.group()
+                break
+
     # 地址（省份匹配）
     if not order.address:
         m = RE_ADDRESS_PROVINCE.search(text)
@@ -257,16 +302,24 @@ def parse_order(text: str) -> OrderInfo:
             tail = text[addr_end:line_end].strip()
             if tail:
                 tokens = [t for t in re.split(r'[\s，,、;；]+', tail) if t]
-                # 电话：末尾的数字串（支持 7-15 位，含区号连字符）
-                if not order.phone:
+                # 电话：末尾的数字串（支持 7-15 位，含区号连字符），手机/座机分别写入
+                if not order.phone or not order.landline:
                     for tok in reversed(tokens):
-                        if re.fullmatch(r'(?:\d{3,4}-)?\d{7,15}', tok):
+                        if not re.fullmatch(r'(?:\d{3,4}-)?\d{7,15}', tok):
+                            continue
+                        kind = _classify_phone(tok)
+                        if kind == "landline" and not order.landline:
+                            order.landline = tok
+                        elif kind == "mobile" and not order.phone:
                             order.phone = tok
+                        elif not order.phone and not order.landline:
+                            order.phone = tok  # 无法分类时兼容旧行为
+                        if order.phone and order.landline:
                             break
                 # 姓名：首个「像姓名」的 token（排除物品描述，如「两箱大桃」）
                 if not order.name:
                     for tok in tokens:
-                        if tok == order.phone:
+                        if tok in (order.phone, order.landline):
                             continue
                         name = _match_name_candidate(tok)
                         if name:
@@ -275,7 +328,7 @@ def parse_order(text: str) -> OrderInfo:
                 # 物品：电话/姓名之外的剩余 token
                 if not order.items:
                     for tok in tokens:
-                        if tok == order.phone:
+                        if tok in (order.phone, order.landline):
                             continue
                         if order.name and re.fullmatch(re.escape(order.name) + r'\d*', tok):
                             continue
@@ -287,8 +340,9 @@ def parse_order(text: str) -> OrderInfo:
 
     # 兜底：姓名仍为空但已识别到电话时，从「电话之前、地址之后」取中文姓名
     # （适用于地址与姓名之间无空格的情况，如 "北京市...1号楼李明 15811171111"）
-    if not order.name and order.phone:
-        phone_pos = text.find(order.phone)
+    if not order.name and (order.phone or order.landline):
+        phone_text = order.phone or order.landline
+        phone_pos = text.find(phone_text)
         if phone_pos > 0:
             before_phone = text[:phone_pos].rstrip()
             if order.address:
@@ -325,6 +379,8 @@ def parse_order(text: str) -> OrderInfo:
             # 同行格式：「姓名 电话 地址 商品...」
             # 尝试提取电话号码前的中文作为姓名
             phone_match = RE_PHONE.search(first)
+            if not phone_match:
+                phone_match = RE_LANDLINE_BOUNDED.search(first)
             if phone_match:
                 prefix = first[:phone_match.start()].strip()
                 m = re.match(r'^([一-龥]{2,4})$', prefix)
@@ -345,7 +401,9 @@ def parse_order(text: str) -> OrderInfo:
             if not re.search(r'[，,、;；。]', line) and ' ' in line:
                 # 单行空格分割格式：取地址后面的部分作为商品
                 # 已知电话和地址后，剩余部分多半是商品
-                segments = _split_after_address(line, order.address, order.phone)
+                segments = _split_after_address(
+                    line, order.address, order.phone, order.landline
+                )
                 for seg in segments:
                     # 跳过地址残留片段
                     if order.address and seg.strip() in order.address:
@@ -386,6 +444,7 @@ def score_fields(fields: dict) -> tuple[float, list[str], dict]:
     """
     name = (fields.get("name") or "").strip()
     phone = (fields.get("phone") or "").strip()
+    landline = (fields.get("landline") or "").strip()
     address = (fields.get("full_address") or "").strip()
 
     warnings: list[str] = []
@@ -407,21 +466,30 @@ def score_fields(fields: dict) -> tuple[float, list[str], dict]:
     else:
         scores["name"] = 0.5
 
-    # --- 手机号 ---
-    if not phone:
+    # --- 手机号/座机（任一有效即可，手机优先）---
+    if not phone and not landline:
         scores["phone"] = 0.0
         warnings.append("手机号缺失")
-    elif RE_PHONE_FULLMATCH.fullmatch(phone):
+    elif phone and RE_PHONE_FULLMATCH.fullmatch(phone):
         scores["phone"] = 0.95
-    elif RE_LANDLINE_FULLMATCH.fullmatch(phone):
+    elif phone and RE_LANDLINE_FULLMATCH.fullmatch(phone):
         scores["phone"] = 0.6
         warnings.append(f"疑似固话（{phone}）")
-    elif re.fullmatch(r'\d{6,15}', phone):
+    elif landline and RE_LANDLINE_FULLMATCH.fullmatch(landline):
+        scores["phone"] = 0.6
+        warnings.append(f"仅固话（{landline}）")
+    elif phone and re.fullmatch(r'\d{6,15}', phone):
         scores["phone"] = 0.5
         warnings.append(f"手机号长度异常（{phone}）")
-    else:
+    elif landline and re.fullmatch(r'\d{6,15}', landline):
+        scores["phone"] = 0.5
+        warnings.append(f"座机号长度异常（{landline}）")
+    elif phone:
         scores["phone"] = 0.3
         warnings.append(f"手机号格式异常（{phone}）")
+    else:
+        scores["phone"] = 0.3
+        warnings.append(f"座机号格式异常（{landline}）")
 
     # --- 地址 ---
     if not address:
@@ -497,7 +565,7 @@ def parse_items(text: str, skip_phone_addr: bool = True) -> list[dict]:
             continue
 
         # 跳过看起来像电话号码的段
-        if skip_phone_addr and RE_PHONE.match(seg):
+        if skip_phone_addr and (RE_PHONE.match(seg) or RE_LANDLINE.fullmatch(seg)):
             continue
         # 跳过看起来像地址的段（含省份关键词）
         if skip_phone_addr and RE_ADDRESS_PROVINCE.match(seg):
@@ -545,8 +613,8 @@ def _is_phone_or_addr_line(line: str) -> bool:
     # 纯数字（含连字符）可能是电话
     if re.match(r'^[\d\-]+$', stripped):
         return True
-    # 手机号
-    if RE_PHONE.fullmatch(stripped):
+    # 手机号 / 座机
+    if RE_PHONE.fullmatch(stripped) or RE_LANDLINE.fullmatch(stripped):
         return True
     # 省份开头的地址
     if RE_ADDRESS_PROVINCE.match(stripped):
@@ -554,13 +622,21 @@ def _is_phone_or_addr_line(line: str) -> bool:
     return False
 
 
-def _split_after_address(text: str, address: str, phone: str) -> list[str]:
+def _split_after_address(text: str, address: str, phone: str,
+                         landline: str = "") -> list[str]:
     """在单行文本中，提取地址后面的商品部分。"""
     # 尝试在电话号码后分割（优先级更高，因为电话更精确）
     if phone and phone in text:
         idx = text.find(phone) + len(phone)
         remaining = text[idx:].strip()
         # 剩余部分可能仍有地址尾段，尝试用空格进一步切分
+        if remaining:
+            return [remaining]
+        return [text]
+
+    if landline and landline in text:
+        idx = text.find(landline) + len(landline)
+        remaining = text[idx:].strip()
         if remaining:
             return [remaining]
         return [text]
@@ -603,6 +679,8 @@ def format_for_order_software(order: OrderInfo) -> str:
         parts.append(f"收货人：{order.name}")
     if order.phone:
         parts.append(f"电话：{order.phone}")
+    if order.landline:
+        parts.append(f"座机：{order.landline}")
     if order.address:
         parts.append(f"地址：{order.address}")
     if order.items:
@@ -621,7 +699,7 @@ def format_for_order_software(order: OrderInfo) -> str:
 def format_tsv(order: OrderInfo) -> str:
     """格式化为 TSV（Tab 分隔，可粘贴到 Excel）。"""
     name = order.name
-    phone = order.phone
+    phone = order.phone or order.landline
     addr = order.address
     notes = order.notes
     items_str = "; ".join(f"{it['name']}×{it['qty']}" for it in order.items)
@@ -658,6 +736,7 @@ if __name__ == "__main__":
         order = parse_order(s)
         print(f"  姓名: {order.name}")
         print(f"  电话: {order.phone}")
+        print(f"  座机: {order.landline}")
         print(f"  地址: {order.address}")
         print(f"  商品: {order.items}")
         print(f"  备注: {order.notes}")

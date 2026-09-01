@@ -12,14 +12,17 @@ from openpyxl.utils import get_column_letter
 EXPORT_FIELD_MAP = {
     "寄件人姓名": "sender_name",
     "寄件人手机": "sender_phone",
+    "寄件人座机": "sender_landline",
     "寄件人地址": "sender_address",
     "寄件人公司": "sender_company",
     "发货仓编码": "sender_warehouse_code",
     "收件人姓名": "name",
     "收件人手机": "phone",
+    "收件人座机": "landline",
     "收件人地址": "full_address",
     "收件人公司": "company",
     "物品类型": "items_text",
+    "时效产品": "delivery_product",
     "面单备注": "notes",
     "自定义信息": "raw",
 }

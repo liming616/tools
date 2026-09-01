@@ -101,7 +101,7 @@ class App:
         self.app_config = load_app_config()
         self._app_title = "{} {}".format(
             self.app_config.get("app_name", "产地快打"),
-            self.app_config.get("version", "v1.0.1"),
+            self.app_config.get("version", "v1.0.2"),
         )
         self._template_key = self.app_config.get("templates", {}).get("default", "JD")
         self._template_options = self.app_config.get("templates", {}).get("options", [])
@@ -1224,6 +1224,7 @@ class App:
         fields = empty_fields_dict()
         fields["name"] = order.name or ""
         fields["phone"] = order.phone or ""
+        fields["landline"] = order.landline or ""
         if order.address:
             fields["full_address"] = order.address
         fields["province"] = parsed_addr.province or ""
@@ -1244,6 +1245,11 @@ class App:
         fields["items"] = order.items or []
         fields["notes"] = order.notes or ""
         fields["raw"] = line
+
+        # 将编辑好的预制信息填入该记录对应的寄件人字段，列表即可直接展示
+        self._apply_prefill_sender_fields(fields)
+        # 物品类型/时效产品同样取预制信息；识别到物品时由 items 覆盖展示
+        self._apply_prefill_default_fields(fields)
 
         # 4. 置信度评分
         overall, warnings_list, scores = score_fields(fields)
@@ -1650,6 +1656,26 @@ class App:
             messagebox.showwarning(
                 "预制信息未填写",
                 "预制信息未填写完整，请先点击「编辑预制信息」补充后再导出 Excel。",
+            )
+            return
+
+        # 逐条校验收件人必填字段：姓名、地址必填，手机/座机二选一
+        invalid_rows = []
+        for row_idx, data in enumerate(self._row_data, start=1):
+            missing_fields = self._validate_receiver_fields(data.get("fields", {}))
+            if missing_fields:
+                invalid_rows.append((row_idx, missing_fields))
+        if invalid_rows:
+            detail_lines = [
+                f"第 {row_idx} 条：{'、'.join(missing_fields)}"
+                for row_idx, missing_fields in invalid_rows[:10]
+            ]
+            if len(invalid_rows) > 10:
+                detail_lines.append(f"… 共 {len(invalid_rows)} 条记录信息不完整")
+            messagebox.showwarning(
+                "收件人信息不完整",
+                "以下记录缺少收件人必填信息，请补充后再导出：\n\n"
+                + "\n".join(detail_lines),
             )
             return
 
@@ -2349,6 +2375,67 @@ class App:
                 values.get("寄件人座机", "")).strip():
             missing.append("寄件人手机、寄件人座机至少填写一项")
         return missing
+
+    def _apply_prefill_sender_fields(self, fields: dict) -> dict:
+        """把当前启用的预制信息填充到记录的寄件人字段（仅填空值）。
+
+        多个启用档案按顺序合并，后者覆盖前者，与导出时的 _merge_prefill 同源；
+        手机与座机语义分开，互不赋值。
+        """
+        enabled = [p for p in self._prefill_profiles if p.get("enabled")]
+        values = self._single_prefill_values(enabled)
+        if not values:
+            return fields
+
+        sender_values = {
+            "sender_name": values.get("寄件人姓名", ""),
+            "sender_phone": values.get("寄件人手机", ""),
+            "sender_landline": values.get("寄件人座机", ""),
+            "sender_address": values.get("寄件人地址", ""),
+            "sender_company": values.get("寄件人公司", ""),
+            "sender_warehouse_code": values.get("发货仓编码", ""),
+        }
+        for field_path, value in sender_values.items():
+            if not str(fields.get(field_path, "")).strip() and str(value).strip():
+                fields[field_path] = str(value).strip()
+        return fields
+
+    @staticmethod
+    def _validate_receiver_fields(fields: dict) -> list[str]:
+        """校验收件人必填字段：姓名、地址必填，手机/座机二选一。
+
+        手机与座机分开存储，任一有值即视为满足二选一。
+        返回缺失字段提示列表，为空表示校验通过。
+        """
+        missing = []
+        if not str(fields.get("name", "")).strip():
+            missing.append("收件人姓名")
+        if not str(fields.get("phone", "")).strip() and not str(
+                fields.get("landline", "")).strip():
+            missing.append("收件人手机/座机")
+        if not str(fields.get("full_address", "")).strip():
+            missing.append("收件人地址")
+        return missing
+
+    def _apply_prefill_default_fields(self, fields: dict) -> dict:
+        """把预制信息的物品类型/时效产品填入列表字段（仅填空值）。
+
+        识别到物品时 fields["items"] 非空，列表/导出的 items_text 由识别结果覆盖；
+        预制信息配置本身不会被修改。
+        """
+        enabled = [p for p in self._prefill_profiles if p.get("enabled")]
+        values = self._single_prefill_values(enabled)
+        if not values:
+            return fields
+
+        default_values = {
+            "items_text": values.get("物品类型", ""),
+            "delivery_product": values.get("时效产品", ""),
+        }
+        for field_path, value in default_values.items():
+            if not str(fields.get(field_path, "")).strip() and str(value).strip():
+                fields[field_path] = str(value).strip()
+        return fields
 
 
 # ======================== 启动自检 ========================
