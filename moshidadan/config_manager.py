@@ -27,7 +27,7 @@ APP_CONFIG_FILE = "app_config.json"
 DEFAULT_APP_CONFIG = {
     "app_name": "产地快打",
     "version": "",
-    "prefill_defaults": {"温层": "冷藏(0-4℃)"},
+    "prefill_defaults": {},
     "templates": {
         "default": "JD",
         "options": [

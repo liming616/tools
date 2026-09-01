@@ -904,6 +904,13 @@ class App:
                     headers.append(h)
         return headers
 
+    @staticmethod
+    def _prefill_initial_value(values: dict, defaults: dict, header: str) -> str:
+        """计算预制信息编辑框的初始值：显式空值保持为空，未设置才用默认值。"""
+        if header in values:
+            return str(values[header]).strip()
+        return str(defaults.get(header, "")).strip()
+
     def _open_prefill_dialog(self, headers: list[str], profiles: list[dict]):
         """打开预制信息确认子窗口（单一预制信息，无档案勾选）。
 
@@ -930,16 +937,36 @@ class App:
 
         value_vars = {
             h: tk.StringVar(
-                value=values.get(h)
-                or str(prefill_defaults.get(h, "")).strip()
+                value=self._prefill_initial_value(values, prefill_defaults, h)
             )
             for h in display_headers
         }
-        for i, h in enumerate(display_headers):
+        row = 0
+        for h in display_headers:
             ttk.Label(body, text=h).grid(
-                row=i, column=0, sticky="w", padx=4, pady=2)
+                row=row, column=0, sticky="w", padx=4, pady=2)
             ttk.Entry(body, textvariable=value_vars[h], width=40).grid(
-                row=i, column=1, sticky="ew", padx=4, pady=2)
+                row=row, column=1, sticky="ew", padx=4, pady=2)
+            row += 1
+            if h == "温层":
+                hint_text = tk.Text(
+                    body,
+                    height=1,
+                    width=40,
+                    wrap=tk.WORD,
+                    relief=tk.FLAT,
+                    bg=top.cget("background"),
+                    fg="#999",
+                    font=("Microsoft YaHei", 8),
+                    highlightthickness=0,
+                    borderwidth=0,
+                )
+                hint_text.insert(
+                    "1.0", "如生鲜产品，温层建议填写（冷藏(0-4℃)）"
+                )
+                hint_text.configure(state="disabled")
+                hint_text.grid(row=row, column=1, sticky="w", padx=4, pady=(0, 4))
+                row += 1
         body.grid_columnconfigure(1, weight=1)
 
         result: dict = {"profiles": None}
@@ -2412,12 +2439,14 @@ class App:
 
     @staticmethod
     def _single_prefill_values(profiles: list[dict]) -> dict:
-        """把历史预制档案合并为单一预制信息，后者覆盖前者。"""
+        """把历史预制档案合并为单一预制信息，后者覆盖前者。
+
+        保留显式空值，用于区分「用户清空」与「从未填写」。
+        """
         merged: dict = {}
         for p in profiles or []:
             for k, v in (p.get("values") or {}).items():
-                if str(v).strip():
-                    merged[k] = str(v).strip()
+                merged[k] = str(v).strip()
         return merged
 
     @staticmethod

@@ -41,6 +41,12 @@ class LoadAppConfigTest(unittest.TestCase):
             config = config_manager.load_app_config()
         self.assertEqual(config["version"], "v1.0.3")
 
+    def test_prefill_defaults_no_temperature_default(self):
+        self.assertEqual(
+            config_manager.DEFAULT_APP_CONFIG["prefill_defaults"].get("温层", ""),
+            "",
+        )
+
     def test_blank_values_use_default(self):
         self._write({"app_name": "  ", "version": ""})
         with patch("config_manager.resource_path", return_value=self._config_path()):

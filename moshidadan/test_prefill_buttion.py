@@ -145,6 +145,35 @@ class PrefillButtonTest(unittest.TestCase):
     def test_single_prefill_values_empty_when_no_profiles(self):
         self.assertEqual(App._single_prefill_values([]), {})
 
+    def test_single_prefill_values_keeps_explicit_empty(self):
+        profiles = [{
+            "enabled": True,
+            "label": "",
+            "values": {"温层": "", "寄件人姓名": "张三"},
+        }]
+        self.assertEqual(
+            App._single_prefill_values(profiles),
+            {"温层": "", "寄件人姓名": "张三"},
+        )
+
+    def test_prefill_initial_value_keeps_explicit_empty(self):
+        self.assertEqual(
+            App._prefill_initial_value({"温层": ""}, {"温层": "冷藏(0-4℃)"}, "温层"),
+            "",
+        )
+
+    def test_prefill_initial_value_uses_default_when_missing(self):
+        self.assertEqual(
+            App._prefill_initial_value({}, {"温层": "冷藏(0-4℃)"}, "温层"),
+            "冷藏(0-4℃)",
+        )
+
+    def test_prefill_initial_value_returns_blank_without_default(self):
+        self.assertEqual(
+            App._prefill_initial_value({}, {}, "温层"),
+            "",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
