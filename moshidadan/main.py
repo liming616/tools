@@ -99,10 +99,9 @@ class App:
         self._clipboard_worker = ClipboardWorker()
         self._clipboard_worker.start()
         self.app_config = load_app_config()
-        self._app_title = "{} {}".format(
-            self.app_config.get("app_name", "产地快打"),
-            self.app_config.get("version", "v1.0.3"),
-        )
+        app_name = self.app_config.get("app_name", "产地快打")
+        app_version = str(self.app_config.get("version", "") or "").strip()
+        self._app_title = f"{app_name} {app_version}".strip()
         self._template_key = self.app_config.get("templates", {}).get("default", "JD")
         self._template_options = self.app_config.get("templates", {}).get("options", [])
         self._selected_export_fields = self._load_export_field_selection()

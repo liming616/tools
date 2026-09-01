@@ -20,10 +20,9 @@ try:
 except Exception:
     pass
 
-_EXE_NAME = "{}_{}".format(
-    _APP_CONFIG.get('app_name', '产地快打'),
-    _APP_CONFIG.get('version', 'v1.0.3'),
-)
+_APP_NAME = _APP_CONFIG.get('app_name', '产地快打')
+_APP_VERSION = str(_APP_CONFIG.get('version', '') or '').strip()
+_EXE_NAME = "{}_{}".format(_APP_NAME, _APP_VERSION) if _APP_VERSION else _APP_NAME
 
 
 a = Analysis(
