@@ -316,15 +316,31 @@ def parse_order(text: str) -> OrderInfo:
                             order.phone = tok  # 无法分类时兼容旧行为
                         if order.phone and order.landline:
                             break
-                # 姓名：首个「像姓名」的 token（排除物品描述，如「两箱大桃」）
+                # 姓名：优先取电话之前的 2-4 字中文（排除地址尾段），
+                # 取不到再从地址后的 token 中找（排除物品描述，如「两箱大桃」）
                 if not order.name:
-                    for tok in tokens:
-                        if tok in (order.phone, order.landline):
-                            continue
-                        name = _match_name_candidate(tok)
-                        if name:
-                            order.name = name
-                            break
+                    name = None
+                    phone_text = order.phone or order.landline
+                    if phone_text:
+                        phone_pos = text.find(phone_text)
+                        if phone_pos > 0:
+                            line_start = text.rfind('\n', 0, phone_pos) + 1
+                            before = text[line_start:phone_pos].strip()
+                            m = re.search(r'([一-龥]{2,4})\d*\s*$', before)
+                            if m and not re.search(
+                                r'[市区县镇乡村路街道巷号楼栋单元室座弄园苑小区大厦广场公寓花园]',
+                                m.group(1),
+                            ):
+                                name = m.group(1)
+                    if not name:
+                        for tok in tokens:
+                            if tok in (order.phone, order.landline):
+                                continue
+                            name = _match_name_candidate(tok)
+                            if name:
+                                break
+                    if name:
+                        order.name = name
                 # 物品：电话/姓名之外的剩余 token
                 if not order.items:
                     for tok in tokens:

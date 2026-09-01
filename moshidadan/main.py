@@ -1193,7 +1193,6 @@ class App:
 
         # 转储后清空预览
         self._clear_preview()
-        self._last_clipboard = text
 
         if inserted > 0:
             if skipped > 0:
