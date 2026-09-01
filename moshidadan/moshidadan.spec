@@ -22,7 +22,7 @@ except Exception:
 
 _EXE_NAME = "{}_{}".format(
     _APP_CONFIG.get('app_name', '产地快打'),
-    _APP_CONFIG.get('version', 'v1.0.2'),
+    _APP_CONFIG.get('version', 'v1.0.3'),
 )
 
 

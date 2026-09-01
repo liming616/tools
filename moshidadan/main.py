@@ -101,7 +101,7 @@ class App:
         self.app_config = load_app_config()
         self._app_title = "{} {}".format(
             self.app_config.get("app_name", "产地快打"),
-            self.app_config.get("version", "v1.0.2"),
+            self.app_config.get("version", "v1.0.3"),
         )
         self._template_key = self.app_config.get("templates", {}).get("default", "JD")
         self._template_options = self.app_config.get("templates", {}).get("options", [])
@@ -764,12 +764,16 @@ class App:
         return list(available)
 
     def _all_export_categories(self) -> list:
-        """返回当前模板配置中全部分类及字段，不随用户勾选结果变化。"""
+        """返回当前模板配置中全部分类、字段及分类颜色，不随用户勾选结果变化。"""
         cats = self.app_config.get("template_configs", {}).get(
             self._template_key, {}
         ).get("categories", [])
         return [
-            (cat.get("name", ""), list(cat.get("fields", [])))
+            (
+                cat.get("name", ""),
+                list(cat.get("fields", [])),
+                str(cat.get("color", "")).strip(),
+            )
             for cat in cats
             if cat.get("fields")
         ]
@@ -1742,7 +1746,13 @@ class App:
             return
 
         try:
-            write_export_excel(file_path, categories, rows)
+            template_cfg = self.app_config.get("template_configs", {}).get(
+                self._template_key, {}
+            )
+            write_export_excel(
+                file_path, categories, rows,
+                dropdown_options=template_cfg.get("dropdown_options", {}),
+            )
             self._flash_status(f"✅ 已导出 {len(rows)} 条记录到 Excel")
             logger.info(
                 "Excel 导出完成 | %s | %d 条记录 | %d 列",
