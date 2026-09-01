@@ -24,6 +24,7 @@ import sys
 import os
 import time
 import json
+import re
 import ctypes
 import ctypes.wintypes as w
 import tkinter as tk
@@ -254,14 +255,14 @@ class App:
             text = self._safe_read_clipboard()
 
             # 剪贴板有新内容 → 更新预览
+            normalized = self._normalize_clipboard_text(text)
             if (
-                text
-                and text.strip()
-                and text.strip() != self._last_clipboard.strip()
+                normalized
+                and normalized != self._normalize_clipboard_text(self._last_clipboard)
             ):
-                logger.debug("_poll_clipboard: 剪贴板变化 | len=%d", len(text))
+                logger.debug("_poll_clipboard: 剪贴板变化 | len=%d", len(normalized))
                 self._last_clipboard = text
-                self._set_preview(text)
+                self._set_preview(normalized)
 
                 # 自动转储（自动识别开启时直接进入列表）
                 if not self._degraded and self._auto_var.get():
@@ -634,13 +635,13 @@ class App:
         )
 
         # 复选框列（#0 树列）：标题位放置全选框，行内显示 ☐/☑，不参与数据列
-        self._collect_table.heading("#0", text="☐")
+        self._collect_table.heading("#0", text="☐", anchor=tk.CENTER)
         self._collect_table.column(
             "#0", width=44, minwidth=40, anchor=tk.CENTER, stretch=False,
         )
 
         # 序号列
-        self._collect_table.heading("seq", text="序号")
+        self._collect_table.heading("seq", text="序号", anchor=tk.CENTER)
         self._collect_table.column(
             "seq", width=52, minwidth=40, anchor=tk.CENTER, stretch=False,
         )
@@ -653,10 +654,9 @@ class App:
         for col_id, header, width in zip(
             self._column_ids[1:], self._visible_headers, col_widths
         ):
-            self._collect_table.heading(col_id, text=header)
-            anchor = tk.W if width >= 200 else tk.CENTER
+            self._collect_table.heading(col_id, text=header, anchor=tk.CENTER)
             self._collect_table.column(
-                col_id, width=width, minwidth=40, anchor=anchor,
+                col_id, width=width, minwidth=40, anchor=tk.CENTER,
             )
 
         # 滚动条
@@ -1132,8 +1132,18 @@ class App:
 
     # ======================== 预览区操作 ========================
 
+    @staticmethod
+    def _normalize_clipboard_text(text: str) -> str:
+        """将剪贴板文本规范化为单行：连续换行替换为一个空格，并去掉首尾空白。"""
+        if not text:
+            return ""
+        return re.sub(r"[\r\n]+", " ", text).strip()
+
     def _set_preview(self, text: str) -> None:
-        """把剪贴板内容追加到预览区（未开启自动识别时逐条累积）。"""
+        """把剪贴板内容规范化为单行后追加到预览区（未开启自动识别时逐条累积）。"""
+        text = self._normalize_clipboard_text(text)
+        if not text:
+            return
         try:
             existing = self._preview_text.get("1.0", tk.END).strip()
             if existing:
