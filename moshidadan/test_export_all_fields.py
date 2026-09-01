@@ -38,6 +38,11 @@ def make_app(selected_fields):
         },
     }]
     app._flash_status = mock.Mock()
+    app._collect_table = mock.Mock()
+    app._collect_table.get_children.return_value = ["item1"]
+    app._capture_count = 1
+    app._update_count_display = mock.Mock()
+    app._undo_btn = mock.Mock()
     return app
 
 
@@ -75,6 +80,18 @@ class ExportAllFieldsTest(unittest.TestCase):
         )
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0][2], "张三")
+
+    def test_export_excel_clears_list_after_success(self):
+        app = make_app(["收件人姓名"])
+        with mock.patch.object(main_mod, "filedialog") as fd, \
+                mock.patch.object(main_mod, "write_export_excel"):
+            fd.asksaveasfilename.return_value = "out.xlsx"
+            app._export_excel()
+        self.assertEqual(app._row_data, [])
+        self.assertEqual(app._capture_count, 0)
+        self.assertEqual(len(app._undo_data), 1)
+        app._collect_table.delete.assert_called_once_with("item1")
+        app._undo_btn.configure.assert_called_once_with(state="normal")
 
     def test_export_excel_blocks_when_prefill_empty(self):
         app = make_app(["收件人姓名"])

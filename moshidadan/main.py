@@ -1717,6 +1717,16 @@ class App:
                 "Excel 导出完成 | %s | %d 条记录 | %d 列",
                 file_path, len(rows), len(headers),
             )
+            # 导出成功后清空列表（保留撤销备份，可点「撤销清空」恢复）
+            self._undo_data = self._row_data[:]
+            for item in self._collect_table.get_children():
+                self._collect_table.delete(item)
+            self._row_data = []
+            self._capture_count = 0
+            self._update_count_display()
+            self._undo_btn.configure(state=tk.NORMAL)
+            self._dirty = True
+            logger.info("导出成功，列表已清空 | %d 条备份可撤销", len(self._undo_data))
         except PermissionError:
             show_error_dialog(
                 "保存失败",
