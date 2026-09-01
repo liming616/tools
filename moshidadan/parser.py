@@ -112,6 +112,30 @@ COMMON_SURNAMES = set(
     "汤成康施文洪"
 )
 
+# 可配置百家姓（来自 app_config.surname_list，由 configure_surnames 注入）
+_configured_single_surnames: set[str] = set()
+_configured_compound_surnames: set[str] = set()
+
+
+def configure_surnames(config: dict) -> None:
+    """从应用配置加载百家姓列表，按单姓/复姓分类。
+
+    配置值示例: "赵,钱,孙,李,欧阳,司马,..."
+    未配置或配置为空时清空自定义姓氏，回退到内置 COMMON_SURNAMES。
+    """
+    global _configured_single_surnames, _configured_compound_surnames
+    _configured_single_surnames = set()
+    _configured_compound_surnames = set()
+    raw = str((config or {}).get("surname_list", "") or "").strip()
+    if not raw:
+        return
+    for item in raw.split(","):
+        surname = item.strip()
+        if len(surname) == 1:
+            _configured_single_surnames.add(surname)
+        elif len(surname) >= 2:
+            _configured_compound_surnames.add(surname)
+
 _CN_DIGIT = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
              "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
 _CN_UNIT = {"十": 10, "百": 100, "千": 1000, "万": 10000}
@@ -142,11 +166,21 @@ def _cn_num_to_int(s: str) -> Optional[int]:
     return total if total > 0 else None
 
 
+def _is_surname_name(name: str) -> bool:
+    """判断姓名是否命中姓氏列表（复姓匹配前两字，单姓匹配首字）。"""
+    if len(name) >= 2 and name[:2] in _configured_compound_surnames:
+        return True
+    if name and name[0] in _configured_single_surnames:
+        return True
+    return bool(name) and name[0] in COMMON_SURNAMES
+
+
 def _match_name_candidate(tok: str) -> Optional[str]:
     """判断 token 是否像姓名，返回去掉尾随数字后的姓名；不像则返回 None。
 
     用于「地址 电话 姓名 物品」同行格式中，区分姓名与物品信息：
       - 「李明」「王五」→ 姓名
+      - 「欧阳锋」「司马光」→ 姓名（百家姓复姓优先匹配）
       - 「两箱大桃」「三斤苹果」→ 物品（中文数字 + 量词开头）
     """
     m = re.match(r'^([一-龥]{2,4})\d*$', tok)
@@ -156,6 +190,11 @@ def _match_name_candidate(tok: str) -> Optional[str]:
     # 「中文数字 + 量词」开头（两箱/三斤/五件…）→ 物品，不是姓名
     if re.search(rf'^[{CN_NUM_CHARS}]+[{MEASURE_WORDS}]', name):
         return None
+    # 百家姓优先：复姓匹配前两字，单姓匹配首字
+    if len(name) >= 2 and name[:2] in _configured_compound_surnames:
+        return name
+    if name[0] in _configured_single_surnames:
+        return name
     if name[0] in COMMON_SURNAMES:
         return name
     if len(name) <= 3:
@@ -332,6 +371,15 @@ def parse_order(text: str) -> OrderInfo:
                                 m.group(1),
                             ):
                                 name = m.group(1)
+                    if not name:
+                        # 优先选择命中姓氏列表的 token，避免「月饼」等物品词抢先
+                        for tok in tokens:
+                            if tok in (order.phone, order.landline):
+                                continue
+                            candidate = _match_name_candidate(tok)
+                            if candidate and _is_surname_name(candidate):
+                                name = candidate
+                                break
                     if not name:
                         for tok in tokens:
                             if tok in (order.phone, order.landline):

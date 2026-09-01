@@ -28,6 +28,7 @@ DEFAULT_APP_CONFIG = {
     "app_name": "产地快打",
     "version": "",
     "prefill_defaults": {},
+    "surname_list": "",
     "templates": {
         "default": "JD",
         "options": [

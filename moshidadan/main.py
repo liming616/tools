@@ -38,7 +38,9 @@ from logger import get_logger, log_exception
 from crash_handler import install_crash_handler, show_error_dialog, show_warning_dialog
 
 # 地址解析
-from parser import parse_order, OrderInfo, score_fields, is_low_confidence
+from parser import (
+    parse_order, OrderInfo, score_fields, is_low_confidence, configure_surnames,
+)
 from address_parser import parse_address_safe, ParsedAddress
 
 # 模版管理
@@ -99,6 +101,7 @@ class App:
         self._clipboard_worker = ClipboardWorker()
         self._clipboard_worker.start()
         self.app_config = load_app_config()
+        configure_surnames(self.app_config)
         app_name = self.app_config.get("app_name", "产地快打")
         app_version = str(self.app_config.get("version", "") or "").strip()
         self._app_title = f"{app_name} {app_version}".strip()
