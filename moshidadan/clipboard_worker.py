@@ -12,7 +12,11 @@ import threading
 import time
 from typing import Optional
 
-from clipboard_safe import safe_read_clipboard, safe_write_clipboard
+from clipboard_safe import (
+    get_clipboard_sequence,
+    safe_read_clipboard,
+    safe_write_clipboard,
+)
 
 
 class ClipboardWorker:
@@ -23,6 +27,7 @@ class ClipboardWorker:
         self._read_timeout_ms = read_timeout_ms
         self._latest_text = ""
         self._latest_ts = 0.0
+        self._last_sequence: Optional[int] = None
         self._lock = threading.Lock()
         self._write_queue: "queue.Queue" = queue.Queue()
         self._write_results: dict[int, bool] = {}
@@ -79,19 +84,21 @@ class ClipboardWorker:
 
     def wait_for_change(
         self,
-        prev_text: str,
+        prev_seq: Optional[int],
         timeout_ms: int = 500,
         poll_interval_ms: int = 50,
     ) -> Optional[str]:
-        """等待工作线程的最新快照发生变化。
+        """等待工作线程读取到新的剪贴板序列号。
 
+        不做文本去重：只要剪贴板序列号变化（发生新复制），即使内容与上次相同也返回。
         仅轮询内存中的快照，不调用剪贴板 WinAPI，因此不会卡死主线程。
         """
         deadline = time.time() + timeout_ms / 1000.0
         while time.time() < deadline:
-            text = self.get_latest_text()
-            if text and text.strip() and text.strip() != prev_text.strip():
-                return text
+            if self.get_latest_sequence() != prev_seq:
+                text = self.get_latest_text()
+                if text and text.strip():
+                    return text
             time.sleep(poll_interval_ms / 1000.0)
         return None
 
@@ -111,7 +118,7 @@ class ClipboardWorker:
         return None
 
     def _loop(self) -> None:
-        """工作线程主循环：先处理一次写入，再读取剪贴板快照。"""
+        """工作线程主循环：先处理写入，再按剪贴板序列号变化读取快照。"""
         while self._running:
             try:
                 req_id, text = self._write_queue.get_nowait()
@@ -123,11 +130,23 @@ class ClipboardWorker:
                 ok = safe_write_clipboard(text)
                 with self._write_lock:
                     self._write_results[req_id] = ok
-
-            current = safe_read_clipboard(timeout_ms=self._read_timeout_ms)
-            if current is not None:
+                # 写入会改变剪贴板序列号，强制下一轮重读一次
                 with self._lock:
-                    self._latest_text = current
-                    self._latest_ts = time.time()
+                    self._last_sequence = None
+
+            current_seq = get_clipboard_sequence()
+            if current_seq != self._last_sequence:
+                # 仅在剪贴板变化后抢读；失败时保留旧快照与旧序列号，下一轮继续重试
+                current = safe_read_clipboard(timeout_ms=self._read_timeout_ms)
+                if current is not None:
+                    with self._lock:
+                        self._latest_text = current
+                        self._latest_ts = time.time()
+                        self._last_sequence = current_seq
 
             time.sleep(self._read_interval)
+
+    def get_latest_sequence(self) -> Optional[int]:
+        """返回最近一次成功读取的剪贴板序列号（非阻塞，None 表示尚未读取）。"""
+        with self._lock:
+            return self._last_sequence

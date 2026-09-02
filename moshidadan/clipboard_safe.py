@@ -41,6 +41,7 @@ user32.CloseClipboard.restype = w.BOOL
 user32.EmptyClipboard.restype = w.BOOL
 user32.GetClipboardData.restype = w.HANDLE
 user32.GetClipboardData.argtypes = [w.UINT]
+user32.GetClipboardSequenceNumber.restype = w.DWORD
 user32.SetClipboardData.restype = w.HANDLE
 user32.SetClipboardData.argtypes = [w.UINT, w.HANDLE]
 user32.GetForegroundWindow.restype = w.HWND
@@ -56,18 +57,26 @@ GMEM_MOVEABLE = 0x0002
 # ======================== 剪贴板读取（带超时）========================
 
 
-def safe_read_clipboard(timeout_ms: int = 500) -> str:
+def get_clipboard_sequence() -> int:
+    """
+    获取剪贴板全局序列号（不打开剪贴板，无锁竞争）。
+
+    Windows 每次 SetClipboardData 都会递增该值，可作为低开销的变化检测信号。
+    """
+    return int(user32.GetClipboardSequenceNumber())
+
+
+def safe_read_clipboard(timeout_ms: int = 500) -> Optional[str]:
     """
     使用 Windows API 直接读取剪贴板，带超时保护。
 
     与 tkinter clipboard_get() 不同，此函数不会无限阻塞。
-    如果 OpenClipboard 在超时内失败，返回空字符串。
 
     Args:
         timeout_ms: 最大等待时间（毫秒）
 
     Returns:
-        剪贴板文本内容，失败时返回 ""
+        成功时返回剪贴板文本（可能为空字符串），失败返回 None
     """
     interval = 50  # 每次重试间隔
     max_attempts = max(1, timeout_ms // interval)
@@ -79,34 +88,38 @@ def safe_read_clipboard(timeout_ms: int = 500) -> str:
             time.sleep(interval / 1000.0)
     else:
         logger.warning("safe_read_clipboard: OpenClipboard 超时 (%dms)", timeout_ms)
-        return ""
+        return None
 
-    text = ""
     try:
         h_data = user32.GetClipboardData(CF_UNICODETEXT)
-        if h_data:
-            ptr = kernel32.GlobalLock(h_data)
-            if ptr:
-                try:
-                    size = kernel32.GlobalSize(h_data)
-                    if size > 0:
-                        # 安全读取，限制最大 1MB
-                        max_chars = min(size // 2, 1_000_000)
-                        raw = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_wchar))
-                        # 手动构建字符串，避免 c_wchar_p 的截断问题
-                        text = raw[:max_chars]
-                        # 截断到第一个 null
-                        null_pos = text.find('\x00')
-                        if null_pos >= 0:
-                            text = text[:null_pos]
-                finally:
-                    kernel32.GlobalUnlock(h_data)
+        if not h_data:
+            return ""
+
+        ptr = kernel32.GlobalLock(h_data)
+        if not ptr:
+            return None
+
+        try:
+            size = kernel32.GlobalSize(h_data)
+            if size <= 0:
+                return ""
+            # 安全读取，限制最大 1MB
+            max_chars = min(size // 2, 1_000_000)
+            raw = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_wchar))
+            # 手动构建字符串，避免 c_wchar_p 的截断问题
+            text = raw[:max_chars]
+            # 截断到第一个 null
+            null_pos = text.find('\x00')
+            if null_pos >= 0:
+                text = text[:null_pos]
+            return text
+        finally:
+            kernel32.GlobalUnlock(h_data)
     except Exception as e:
         logger.debug("safe_read_clipboard: 读取异常: %s", e)
+        return None
     finally:
         user32.CloseClipboard()
-
-    return text
 
 
 # ======================== 剪贴板写入（带重试）========================
