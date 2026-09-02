@@ -28,6 +28,7 @@ import re
 import ctypes
 import ctypes.wintypes as w
 import tkinter as tk
+from tkinter import font as tkfont
 from tkinter import ttk, messagebox, filedialog
 from typing import Optional
 
@@ -183,8 +184,6 @@ class App:
         # ---- 创建主窗口 ----
         self._root = tk.Tk()
         self._root.title(self._app_title)
-        self._root.geometry("960x620")
-        self._root.minsize(700, 480)
 
         # Windows DPI 适配
         if sys.platform == "win32":
@@ -199,6 +198,12 @@ class App:
             except Exception:
                 pass
 
+        # 按屏幕工作区选择收集表格初始可见行数，避免表头/行高翻倍后挤出底部按钮
+        self._screen_work_w, self._screen_work_h = self._read_screen_work_area()
+        self._collect_table_visible_rows = self._choose_collect_table_height(
+            self._screen_work_h
+        )
+
         self._build_ui()
         self._root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._root.bind("<Control-Shift-D>", self._dump_diagnostics)
@@ -209,6 +214,9 @@ class App:
 
         # ---- 恢复已保存数据 ----
         self._restore_saved_data()
+
+        # 所有内容就绪后再按实际请求尺寸适配窗口，保证底部按钮可见
+        self._fit_window_to_screen()
 
         # ---- 启动 ----
         self._running = True
@@ -616,16 +624,27 @@ class App:
         n_cols = len(self._visible_headers)
 
         # 生成列 ID 和宽度（数据列 = 序号列 seq + 可见模版列）
+        # 表头宽度按 16 号字体实测文本宽度自适应，同时保留字段类型建议宽度作为下限
         self._column_ids = ["seq"] + [f"col{i}" for i in range(n_cols)]
-        col_widths = [compute_column_width(f) for f in self._visible_fields]
+        header_font = tkfont.Font(family="Microsoft YaHei", size=16)
+        col_widths = [
+            max(header_font.measure(header) + 24, compute_column_width(field))
+            for header, field in zip(self._visible_headers, self._visible_fields)
+        ]
 
         # 清理容器中的旧控件
         for w in self._collect_tree_container.winfo_children():
             w.destroy()
 
-        # 放大表格字体（含复选框 glyph），行高由 rowheight 决定，不受影响
+        # 表格内容字体保持 14；行高从默认约 20 提升到 40（原来的 2 倍）
+        # 表头字号从 14 提升到 16，并通过上下 padding 将表头高度从约 26 提升到 52
         _style = ttk.Style()
-        _style.configure("Treeview", font=("Microsoft YaHei", 14))
+        _style.configure("Treeview", font=("Microsoft YaHei", 14), rowheight=40)
+        _style.configure(
+            "Treeview.Heading",
+            font=("Microsoft YaHei", 16),
+            padding=(1, 11),
+        )
 
         # 创建 Treeview
         self._collect_table = ttk.Treeview(
@@ -633,7 +652,7 @@ class App:
             columns=self._column_ids,
             show="tree headings",
             selectmode="extended",
-            height=6,
+            height=getattr(self, "_collect_table_visible_rows", 6),
         )
 
         # 复选框列（#0 树列）：标题位放置全选框，行内显示 ☐/☑，不参与数据列
@@ -658,7 +677,7 @@ class App:
         ):
             self._collect_table.heading(col_id, text=header, anchor=tk.CENTER)
             self._collect_table.column(
-                col_id, width=width, minwidth=40, anchor=tk.CENTER,
+                col_id, width=width, minwidth=40, anchor=tk.CENTER, stretch=True,
             )
 
         # 滚动条
@@ -2542,6 +2561,41 @@ class App:
             if not str(fields.get(field_path, "")).strip() and str(value).strip():
                 fields[field_path] = str(value).strip()
         return fields
+
+    def _read_screen_work_area(self) -> tuple[int, int]:
+        """读取 Tk 逻辑屏幕尺寸，并按任务栏预留工作区高度。"""
+        return self._root.winfo_screenwidth(), self._root.winfo_screenheight() - 80
+
+    @staticmethod
+    def _choose_collect_table_height(work_height: int) -> int:
+        """按工作区高度选择收集表格初始可见行数。"""
+        if work_height >= 800:
+            return 6
+        if work_height >= 760:
+            return 5
+        if work_height >= 720:
+            return 4
+        if work_height >= 680:
+            return 3
+        return 2
+
+    def _fit_window_to_screen(self) -> None:
+        """按实际控件请求尺寸和屏幕工作区适配主窗口。"""
+        work_w, work_h = self._read_screen_work_area()
+        width = min(960, max(680, work_w - 20))
+
+        # 先给足工作区高度再计算请求高度，避免底部按钮因固定 620 高度被截断
+        self._root.geometry(f"{width}x{work_h}")
+        self._root.update_idletasks()
+
+        req_h = self._root.winfo_reqheight()
+        height = min(req_h + 28, work_h)
+        x = max(0, (work_w - width) // 2)
+        y = max(0, (work_h - height) // 2)
+
+        self._root.geometry(f"{width}x{height}+{x}+{y}")
+        self._root.minsize(700, min(480, work_h))
+        self._root.update_idletasks()
 
 
 # ======================== 启动自检 ========================
