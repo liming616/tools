@@ -111,6 +111,7 @@ class App:
         self._selected_export_fields = self._load_export_field_selection()
         self._running = False
         self._last_clipboard = ""
+        self._last_clipboard_seq: Optional[int] = None
         self._capture_count = 0
         self._dc_enabled = self.config.get("double_click_copy", True)
 
@@ -212,6 +213,7 @@ class App:
         # ---- 启动 ----
         self._running = True
         self._last_clipboard = ""
+        self._last_clipboard_seq = None
         logger.info(
             "应用启动完成 | dc_enabled=%s | poll_interval=%dms | dc_interval=%dms | "
             "auto_save=%ds | max_errors/min=%d",
@@ -253,14 +255,13 @@ class App:
 
         try:
             text = self._safe_read_clipboard()
+            seq = self._clipboard_worker.get_latest_sequence()
 
-            # 剪贴板有新内容 → 更新预览
+            # 剪贴板有新的复制（序列号变化）→ 更新预览；不做文本去重
             normalized = self._normalize_clipboard_text(text)
-            if (
-                normalized
-                and normalized != self._normalize_clipboard_text(self._last_clipboard)
-            ):
-                logger.debug("_poll_clipboard: 剪贴板变化 | len=%d", len(normalized))
+            if normalized and seq != self._last_clipboard_seq:
+                logger.debug("_poll_clipboard: 剪贴板序列号变化 | len=%d", len(normalized))
+                self._last_clipboard_seq = seq
                 self._last_clipboard = text
                 self._set_preview(normalized)
 
@@ -302,6 +303,7 @@ class App:
             self._record_error(f"剪贴板轮询异常: {e}")
             try:
                 self._last_clipboard = self._safe_read_clipboard()
+                self._last_clipboard_seq = self._clipboard_worker.get_latest_sequence()
             except Exception:
                 pass
         finally:
@@ -322,7 +324,7 @@ class App:
 
         ttk.Label(
             header, text=f"📋 {self._app_title}",
-            font=("Microsoft YaHei", 14, "bold"),
+            font=("Microsoft YaHei", 18, "bold"),
         ).pack(side=tk.LEFT)
 
         status_right = ttk.Frame(header)
@@ -331,13 +333,13 @@ class App:
         self._source_var = tk.StringVar(value="")
         ttk.Label(
             status_right, textvariable=self._source_var,
-            font=("Microsoft YaHei", 8), foreground="#aaa",
+            font=("Microsoft YaHei", 12), foreground="#aaa",
         ).pack(side=tk.RIGHT, padx=(0, 8))
 
         self._status_var = tk.StringVar(value="🟢 监听中")
         self._status_label = ttk.Label(
             status_right, textvariable=self._status_var,
-            foreground="green", font=("Microsoft YaHei", 10),
+            foreground="green", font=("Microsoft YaHei", 14),
         )
         self._status_label.pack(side=tk.RIGHT)
 
@@ -351,7 +353,7 @@ class App:
         ttk.Label(
             hint,
             text="💡 双击(选词)/三击(选行) → 自动复制到预览 | 或 Ctrl+C → 点「文本识别」",
-            font=("Microsoft YaHei", 8),
+            font=("Microsoft YaHei", 12),
             foreground="#999",
         ).pack(anchor=tk.W)
 
@@ -363,7 +365,7 @@ class App:
         self._health_label = ttk.Label(
             self._health_frame,
             textvariable=self._health_var,
-            font=("Microsoft YaHei", 8),
+            font=("Microsoft YaHei", 12),
             foreground="#E67E22",
         )
         self._health_label.pack(side=tk.LEFT, padx=pad_x)
@@ -379,7 +381,7 @@ class App:
 
         self._preview_text = tk.Text(
             preview_body,
-            font=("Microsoft YaHei", 10),
+            font=("Microsoft YaHei", 14),
             wrap=tk.WORD,
             height=3,
             state="normal",             # 显式声明可编辑
@@ -409,7 +411,7 @@ class App:
         ttk.Label(
             preview_btns,
             textvariable=self._preview_info_var,
-            font=("Microsoft YaHei", 8),
+            font=("Microsoft YaHei", 12),
             foreground="#aaa",
         ).pack(side=tk.LEFT)
 
@@ -462,7 +464,7 @@ class App:
         ttk.Label(
             collect_toolbar,
             textvariable=self._count_var,
-            font=("Microsoft YaHei", 9),
+            font=("Microsoft YaHei", 13),
             foreground="#666",
         ).pack(side=tk.LEFT)
 
@@ -495,7 +497,7 @@ class App:
         self._prefill_var = tk.StringVar(value="预制信息: 未导入")
         ttk.Label(
             collect_toolbar, textvariable=self._prefill_var,
-            font=("Microsoft YaHei", 8), foreground="#888",
+            font=("Microsoft YaHei", 12), foreground="#888",
         ).pack(side=tk.LEFT, padx=(10, 0))
 
         # 撤销清空按钮
@@ -520,7 +522,7 @@ class App:
         self._prefill_echo_frame = ttk.Frame(collect_frame)
         self._prefill_echo = tk.Text(
             self._prefill_echo_frame,
-            font=("Microsoft YaHei", 9),
+            font=("Microsoft YaHei", 13),
             wrap=tk.WORD,
             height=2,
             state="disabled",
@@ -553,7 +555,7 @@ class App:
         ttk.Label(
             collect_frame,
             textvariable=self._stats_var,
-            font=("Microsoft YaHei", 9),
+            font=("Microsoft YaHei", 13),
             foreground="#555",
             anchor=tk.W,
         ).pack(fill=tk.X, pady=(4, 0))
@@ -584,7 +586,7 @@ class App:
         self._error_indicator_var = tk.StringVar(value="")
         ttk.Label(
             bottom, textvariable=self._error_indicator_var,
-            font=("Microsoft YaHei", 8), foreground="#ccc",
+            font=("Microsoft YaHei", 12), foreground="#ccc",
         ).pack(side=tk.RIGHT)
 
         # 初始化预制信息状态
@@ -623,7 +625,7 @@ class App:
 
         # 放大表格字体（含复选框 glyph），行高由 rowheight 决定，不受影响
         _style = ttk.Style()
-        _style.configure("Treeview", font=("Microsoft YaHei", 10))
+        _style.configure("Treeview", font=("Microsoft YaHei", 14))
 
         # 创建 Treeview
         self._collect_table = ttk.Treeview(
@@ -816,7 +818,7 @@ class App:
                 continue
             ttk.Label(
                 inner, text=cat_name,
-                font=("Microsoft YaHei", 10, "bold"),
+                font=("Microsoft YaHei", 14, "bold"),
             ).pack(anchor="w", pady=(8, 2))
             frame = ttk.Frame(inner)
             frame.pack(fill=tk.X)
@@ -932,7 +934,7 @@ class App:
         ttk.Label(
             top,
             text="核对/编辑预制信息，点击「确认」后应用到导出。",
-            font=("Microsoft YaHei", 9), foreground="#666",
+            font=("Microsoft YaHei", 13), foreground="#666",
         ).pack(anchor=tk.W, padx=pad, pady=(pad, 6))
 
         body = ttk.Frame(top)
@@ -960,7 +962,7 @@ class App:
                     relief=tk.FLAT,
                     bg=top.cget("background"),
                     fg="#999",
-                    font=("Microsoft YaHei", 8),
+                    font=("Microsoft YaHei", 12),
                     highlightthickness=0,
                     borderwidth=0,
                 )
@@ -1588,25 +1590,27 @@ class App:
         self._dc_click_count = 0
 
         # === 直接链路：Ctrl+C → 等待剪贴板 → 复制到预览（带自校验与重试）===
-        prev_clip = self._last_clipboard
-        new_text = self._capture_with_retry(prev_clip)
+        prev_seq = self._clipboard_worker.get_latest_sequence()
+        new_text = self._capture_with_retry(prev_seq)
         if new_text:
             self._last_clipboard = new_text
+            self._last_clipboard_seq = self._clipboard_worker.get_latest_sequence()
             self._set_preview(new_text)
             self._flash_status("📋 已复制到预览区，可编辑后点击「文本识别」转储")
         else:
             logger.warning(
-                "连击采集失败（多次重试后剪贴板仍未变化）| prev_len=%d | fg=%s",
-                len(prev_clip), get_foreground_title()[:30],
+                "连击采集失败（多次重试后剪贴板序列号未变化）| prev_seq=%s | fg=%s",
+                prev_seq, get_foreground_title()[:30],
             )
             self._flash_status(
                 "⚠️ 采集失败：未检测到复制内容，请手动 Ctrl+C", duration=6000,
             )
 
-    def _capture_with_retry(self, prev_clip: str, attempts: int = 3):
-        """发送 Ctrl+C 并等待剪贴板变化；失败则重试，返回新文本或 None。
+    def _capture_with_retry(self, prev_seq: Optional[int], attempts: int = 3):
+        """发送 Ctrl+C 并等待剪贴板序列号变化；失败则重试，返回新文本或 None。
 
-        自校验：每次发送后主动轮询剪贴板，确认内容确实发生变化才判定成功。
+        自校验：每次发送后等待工作线程读到新序列号才判定成功；
+        不做文本去重，复制相同内容也会判定成功。
         最多重试 attempts 次（首次 + attempts-1 次重试），避免静默漏采。
         """
         for i in range(attempts):
@@ -1614,7 +1618,7 @@ class App:
                 logger.warning("连击后 Ctrl+C 发送失败（第%d/%d次）", i + 1, attempts)
             else:
                 new_text = self._clipboard_worker.wait_for_change(
-                    prev_clip, timeout_ms=500, poll_interval_ms=50,
+                    prev_seq, timeout_ms=500, poll_interval_ms=50,
                 )
                 if new_text:
                     logger.debug(
@@ -1944,7 +1948,7 @@ class App:
         # 创建 Entry 覆盖在单元格上
         entry = tk.Entry(
             self._collect_table,
-            font=("Microsoft YaHei", 10),
+            font=("Microsoft YaHei", 12),
             relief=tk.FLAT,
             borderwidth=1,
             highlightbackground="#3498DB",

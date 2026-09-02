@@ -81,20 +81,20 @@ class OrderOverlay:
         tk.Label(
             title_frame, text="📋 检测到订单",
             fg="#F39C12", bg=bg,
-            font=("Microsoft YaHei", 11, "bold"),
+            font=("Microsoft YaHei", 15, "bold"),
         ).pack(side=tk.LEFT)
 
         # 关闭按钮
         tk.Label(
             title_frame, text="✕", fg="#95A5A6", bg=bg,
-            font=("Microsoft YaHei", 10), cursor="hand2",
+            font=("Microsoft YaHei", 14), cursor="hand2",
         ).pack(side=tk.RIGHT)
         title_frame.winfo_children()[-1].bind("<Button-1>", lambda e: self.dismiss())
 
         # 内容摘要
         tk.Label(
             frame, text=self._summary, fg=fg, bg=bg,
-            font=("Microsoft YaHei", 9), justify=tk.LEFT,
+            font=("Microsoft YaHei", 13), justify=tk.LEFT,
             wraplength=300,
         ).pack(fill=tk.X, pady=(8, 12))
 
@@ -105,7 +105,7 @@ class OrderOverlay:
         send_btn = tk.Label(
             btn_frame, text="📤 发送到打单软件",
             fg="white", bg=accent,
-            font=("Microsoft YaHei", 10, "bold"),
+            font=("Microsoft YaHei", 14, "bold"),
             padx=16, pady=8,
             cursor="hand2",
         )
@@ -116,7 +116,7 @@ class OrderOverlay:
 
         ignore_btn = tk.Label(
             btn_frame, text="忽略", fg="#7F8C8D", bg=bg,
-            font=("Microsoft YaHei", 9), padx=10, pady=6,
+            font=("Microsoft YaHei", 13), padx=10, pady=6,
             cursor="hand2",
         )
         ignore_btn.pack(side=tk.RIGHT, padx=(10, 0))
