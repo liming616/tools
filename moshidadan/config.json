@@ -14,8 +14,8 @@
   "log_retention_days": 30,
   "prefill_profiles": [],
   "export_field_selection": [],
-  "selected_template": "JD_MONTHLY",
-  "selected_sender": "寄件人1",
+  "selected_template": "JD_OFFICIAL",
+  "selected_sender": "寄件人2",
   "selected_strategy": {
     "JD_MONTHLY": "p1"
   },
@@ -34,12 +34,12 @@
     },
     {
       "label": "寄件人2",
-      "sender_name": "",
-      "sender_phone": "",
-      "sender_landline": "",
-      "sender_address": "",
-      "items_text": "",
-      "temperature_layer": ""
+      "sender_name": "京京",
+      "sender_phone": "13100002222",
+      "sender_landline": "860288889",
+      "sender_address": "北京市海淀区",
+      "items_text": "文件",
+      "temperature_layer": "冷藏(0-4℃)"
     },
     {
       "label": "寄件人3",
@@ -52,11 +52,11 @@
     }
   ],
   "default_sender": {
-    "sender_name": "",
-    "sender_phone": "",
-    "sender_landline": "",
-    "sender_address": "",
-    "items_text": "",
+    "sender_name": "欢欢",
+    "sender_phone": "13300001111",
+    "sender_landline": "8506666",
+    "sender_address": "北京市朝阳区",
+    "items_text": "水果",
     "temperature_layer": "冷藏(0-4℃)"
   },
   "version": 3

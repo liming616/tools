@@ -491,4 +491,8 @@ class AppFrame(tk.Tk):
                 return o.get("label", key)
         return "京东月结模板"
 
+    def clear_receiver_text(self) -> None:
+        """清空收件人文本框，避免同一批文本被再次识别。"""
+        self._receiver_text.delete("1.0", tk.END)
+
     # 面板切换时切换开关样式

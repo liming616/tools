@@ -311,6 +311,8 @@ class App:
             return
         for fields in recognize_batch(text):
             self._append_row(self._merge_fields(fields))
+        # 识别完成后清空收件框，防止同一批文本被再次识别导致重复
+        self._frame.clear_receiver_text()
         self._frame.set_status(f"已识别 {len(self._row_data)} 条")
 
     # ---------- 导出 ----------
