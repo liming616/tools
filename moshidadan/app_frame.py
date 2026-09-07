@@ -355,8 +355,7 @@ class AppFrame(tk.Tk):
             if header == "序号":
                 values.append(str(serial if serial is not None else i + 1))
             else:
-                key = self._field_key(header)
-                values.append(str(fields.get(key, "") if key else ""))
+                values.append(str(self._display_value(fields, header)))
         return tuple(values)
 
     def insert_row(self, values) -> str:
@@ -494,5 +493,12 @@ class AppFrame(tk.Tk):
     def clear_receiver_text(self) -> None:
         """清空收件人文本框，避免同一批文本被再次识别。"""
         self._receiver_text.delete("1.0", tk.END)
+
+    def _display_value(self, fields, header) -> str:
+        """按列取显示值；联系方式列合并手机/座机，避免座机号丢失。"""
+        if header == "联系方式":
+            return str(fields.get("phone") or fields.get("landline") or "")
+        key = self._field_key(header)
+        return str(fields.get(key, "") if key else "")
 
     # 面板切换时切换开关样式

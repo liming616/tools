@@ -14,12 +14,12 @@
   "log_retention_days": 30,
   "prefill_profiles": [],
   "export_field_selection": [],
-  "selected_template": "JD_OFFICIAL",
-  "selected_sender": "寄件人2",
+  "selected_template": "JD_MONTHLY",
+  "selected_sender": "寄件人3",
   "selected_strategy": {
     "JD_MONTHLY": "p1"
   },
-  "auto_recognize": false,
+  "auto_recognize": true,
   "combo_copy": true,
   "save_dir": "D:/dingdong673/Documents",
   "sender_profiles": [

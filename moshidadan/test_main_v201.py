@@ -34,6 +34,34 @@ class MainV201Test(unittest.TestCase):
         self.assertEqual(fields["temperature_layer"], "冷藏(0-4℃)")
         self.assertEqual(fields["payment_method"], "寄付月结")
 
+    def test_merge_fields_fallback_first_strategy_when_no_selected(self):
+        """回归：JD_OFFICIAL 未写入 selected_strategy 时，应回退到内置第一条流向策略。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._app_config = {}
+        app._config = {"selected_template": "JD_OFFICIAL"}
+        app._template_key = "JD_OFFICIAL"
+        app._sender_mgr = mock.Mock()
+        app._sender_mgr.get_selected_sender_fields.return_value = {}
+        app._sender_mgr.get_temperature_layer.return_value = "冷藏(0-4℃)"
+        app._sender_mgr.get_payment_method.return_value = ""
+        # selected_strategy 为空 -> get_selected_strategy_id 返回空
+        app._sender_mgr.get_selected_strategy_id.return_value = ""
+        strategy_q1 = {
+            "id": "q1", "name": "江浙沪-生鲜标快，其他-生鲜特快",
+            "rules": [{"provinces": ["江苏", "浙江", "上海"], "cities": [], "product": "生鲜标快"}],
+            "fallback_product": "生鲜特快",
+        }
+        with mock.patch.object(
+            main_mod, "get_flow_strategies", return_value=[strategy_q1]
+        ):
+            fields = app._merge_fields({
+                "name": "关羽", "full_address": "江苏省宿迁市宿城区", "delivery_product": "",
+                "province": "江苏", "city": "宿迁", "temperature_layer": "",
+                "payment_method": "", "notes": "",
+            })
+        # 未选中策略，但规则命中江苏省 -> 生鲜标快
+        self.assertEqual(fields["delivery_product"], "生鲜标快")
+
     def test_export_excel_clears_and_saves(self):
         app = main_mod.App.__new__(main_mod.App)
         app._row_data = [{

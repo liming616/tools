@@ -109,10 +109,14 @@ class App:
             or self._sender_mgr.get_payment_method(self._template_key)
         )
         if not merged.get("delivery_product"):
-            strategy_id = self._sender_mgr.get_selected_strategy_id(self._template_key)
             strategies = get_flow_strategies(self._app_config, self._template_key)
-            strategy = next((s for s in strategies if s.get("id") == strategy_id), None)
-            if strategy:
+            if strategies:
+                # 优先使用 config.json 中选中的策略；未选中或已失效时回退到内置第一条，
+                # 保证 JD_OFFICIAL 等未写入 selected_strategy 的模板也能读取流向配置。
+                strategy_id = self._sender_mgr.get_selected_strategy_id(self._template_key)
+                strategy = next(
+                    (s for s in strategies if s.get("id") == strategy_id), None
+                ) or strategies[0]
                 merged["delivery_product"] = resolve_product(
                     strategy, merged.get("province", ""), merged.get("city", "")
                 )
