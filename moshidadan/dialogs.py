@@ -35,7 +35,7 @@ class SenderConfigDialog(tk.Toplevel):
             "寄件人座机": tk.StringVar(value=default.get("sender_landline", "")),
             "寄件人地址": tk.StringVar(value=default.get("sender_address", "")),
             "物品类型": tk.StringVar(value=default.get("items_text", "")),
-            "温层": tk.StringVar(value=(default.get("temperature_layer") or get_default_temperature(app_config))),
+            "温层": tk.StringVar(value=self._resolve_initial_temperature(default, app_config)),
         }
 
         self._build_ui()
@@ -92,6 +92,10 @@ class SenderConfigDialog(tk.Toplevel):
     def _on_confirm(self) -> None:
         """保存默认寄件人与流向策略，写回 config 并关闭弹窗。"""
         fields = self.collect_default_fields()
+        errors = self.validate_default_fields(fields)
+        if errors:
+            messagebox.showwarning("校验未通过", "；".join(errors))
+            return
         default = self._config.setdefault("default_sender", {})
         default.update(fields)
         if self._strategy_var.get():
@@ -111,3 +115,29 @@ class SenderConfigDialog(tk.Toplevel):
             "items_text": self._default_vars["物品类型"].get().strip(),
             "temperature_layer": self._default_vars["温层"].get().strip(),
         }
+
+    @staticmethod
+    def _resolve_initial_temperature(default: dict, app_config: dict) -> str:
+        """解析温层初始值：曾保存（含清空）则按保存值回填，否则回退全局默认。
+
+        default_sender 中一旦出现 temperature_layer 键，表示用户已保存过（哪怕是清空），
+        应原样回填，避免清空后被冷藏(0-4℃)默认值再次覆盖。
+        """
+        if "temperature_layer" in (default or {}):
+            saved = (default.get("temperature_layer") or "")
+            return str(saved).strip()
+        return get_default_temperature(app_config)
+
+    def validate_default_fields(self, fields: dict) -> list:
+        """校验默认寄件人必填字段，返回错误提示列表（空列表表示校验通过）。"""
+        errors = []
+        if not (fields.get("sender_name") or "").strip():
+            errors.append("寄件人姓名 为必填项")
+        if not (fields.get("sender_address") or "").strip():
+            errors.append("寄件人地址 为必填项")
+        if not (fields.get("items_text") or "").strip():
+            errors.append("物品类型 为必填项")
+        if not ((fields.get("sender_phone") or "").strip()
+                or (fields.get("sender_landline") or "").strip()):
+            errors.append("寄件人手机、寄件人座机至少填写一项")
+        return errors

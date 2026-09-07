@@ -33,6 +33,72 @@ class DialogContextTest(unittest.TestCase):
         self.assertEqual(fields["sender_name"], "默认公司")
         self.assertEqual(fields["temperature_layer"], "冷藏(0-4℃)")
 
+    def test_validate_default_fields_requires_required_fields(self):
+        dialog = SenderConfigDialog.__new__(SenderConfigDialog)
+        fields = {
+            "sender_name": "", "sender_phone": "", "sender_landline": "",
+            "sender_address": "", "items_text": "", "temperature_layer": "",
+        }
+        errors = dialog.validate_default_fields(fields)
+        self.assertIn("寄件人姓名 为必填项", errors)
+        self.assertIn("寄件人地址 为必填项", errors)
+        self.assertIn("物品类型 为必填项", errors)
+        self.assertIn("寄件人手机、寄件人座机至少填写一项", errors)
+
+    def test_validate_default_fields_requires_phone_or_landline(self):
+        dialog = SenderConfigDialog.__new__(SenderConfigDialog)
+        fields = {
+            "sender_name": "张三", "sender_phone": "", "sender_landline": "",
+            "sender_address": "上海市", "items_text": "文件", "temperature_layer": "",
+        }
+        errors = dialog.validate_default_fields(fields)
+        self.assertEqual(errors, ["寄件人手机、寄件人座机至少填写一项"])
+
+    def test_validate_default_fields_accepts_phone_only(self):
+        dialog = SenderConfigDialog.__new__(SenderConfigDialog)
+        fields = {
+            "sender_name": "张三", "sender_phone": "13900139000", "sender_landline": "",
+            "sender_address": "上海市", "items_text": "文件", "temperature_layer": "",
+        }
+        self.assertEqual(dialog.validate_default_fields(fields), [])
+
+    def test_validate_default_fields_accepts_landline_only(self):
+        dialog = SenderConfigDialog.__new__(SenderConfigDialog)
+        fields = {
+            "sender_name": "张三", "sender_phone": "", "sender_landline": "010-88888888",
+            "sender_address": "上海市", "items_text": "文件", "temperature_layer": "",
+        }
+        self.assertEqual(dialog.validate_default_fields(fields), [])
+
+    def test_validate_default_fields_all_ok(self):
+        dialog = SenderConfigDialog.__new__(SenderConfigDialog)
+        fields = {
+            "sender_name": "张三", "sender_phone": "13900139000",
+            "sender_landline": "010-88888888", "sender_address": "上海市",
+            "items_text": "文件", "temperature_layer": "冷藏(0-4℃)",
+        }
+        self.assertEqual(dialog.validate_default_fields(fields), [])
+
+    def test_resolve_initial_temperature_uses_default_when_missing(self):
+        self.assertEqual(
+            SenderConfigDialog._resolve_initial_temperature({}, {}),
+            "冷藏(0-4℃)",
+        )
+
+    def test_resolve_initial_temperature_keeps_explicit_empty(self):
+        self.assertEqual(
+            SenderConfigDialog._resolve_initial_temperature({"temperature_layer": ""}, {}),
+            "",
+        )
+
+    def test_resolve_initial_temperature_uses_saved_value(self):
+        self.assertEqual(
+            SenderConfigDialog._resolve_initial_temperature(
+                {"temperature_layer": "冷冻(≤-18℃)"}, {}
+            ),
+            "冷冻(≤-18℃)",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
