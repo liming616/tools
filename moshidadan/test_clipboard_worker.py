@@ -79,7 +79,15 @@ class ClipboardWorkerTest(unittest.TestCase):
             state["i"] += 1
             return text
 
-        with patch("clipboard_worker.safe_read_clipboard", side_effect=fake_read):
+        # 剪贴板序列号递增，确保 worker 每轮都能读取到新文本
+        seq_state = {"seq": 100}
+
+        def fake_seq():
+            seq_state["seq"] += 1
+            return seq_state["seq"]
+
+        with patch("clipboard_worker.safe_read_clipboard", side_effect=fake_read), \
+             patch("clipboard_worker.get_clipboard_sequence", side_effect=fake_seq):
             worker.start()
             try:
                 deadline = time.time() + 2
@@ -87,7 +95,10 @@ class ClipboardWorkerTest(unittest.TestCase):
                     if worker.get_latest_text() == "旧文本":
                         break
                     time.sleep(0.02)
-                result = worker.wait_for_change("旧文本", timeout_ms=1000, poll_interval_ms=20)
+                # 记录读到旧文本时的剪贴板序列号，作为 wait_for_change 的上一序列
+                prev_seq = worker.get_latest_sequence()
+                self.assertIsNotNone(prev_seq)
+                result = worker.wait_for_change(prev_seq, timeout_ms=1000, poll_interval_ms=20)
                 self.assertEqual(result, "新文本")
             finally:
                 worker.stop()

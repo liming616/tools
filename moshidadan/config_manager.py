@@ -20,7 +20,7 @@ from paths import app_dir, resource_path
 # ======================== 常量 ========================
 
 CONFIG_FILE = os.path.join(app_dir(), "config.json")
-CONFIG_VERSION = 2  # 当前配置版本
+CONFIG_VERSION = 3  # 当前配置版本
 
 # 应用元数据配置（随 exe 打包，只读）
 APP_CONFIG_FILE = "app_config.json"
@@ -54,6 +54,15 @@ CONFIG_SCHEMA = {
     "log_retention_days": int,      # 1-365
     "prefill_profiles": list,       # 预制信息档案列表
     "export_field_selection": list, # 用户勾选的导出字段
+    # ---- v2.0.1 运行期配置字段（缺失会导致配置无法回显） ----
+    "selected_template": str,       # 当前模板 key
+    "selected_sender": str,         # 当前选中寄件人 label
+    "selected_strategy": dict,      # {模板key: 策略id}
+    "auto_recognize": (bool, int),  # 自动识别开关
+    "combo_copy": (bool, int),      # 连击复制开关
+    "save_dir": str,                # 导出保存目录
+    "sender_profiles": list,        # 寄件人 1/2/3 档案
+    "default_sender": dict,         # 默认寄件人
     "version": int,                 # schema version
 }
 
@@ -70,6 +79,15 @@ DEFAULT_CONFIG = {
     "log_retention_days": 30,
     "prefill_profiles": [],
     "export_field_selection": [],
+    # ---- v2.0.1 运行期配置字段 ----
+    "selected_template": "JD_MONTHLY",
+    "selected_sender": "",
+    "selected_strategy": {},
+    "auto_recognize": True,
+    "combo_copy": False,
+    "save_dir": "",
+    "sender_profiles": [],
+    "default_sender": {},
     "version": CONFIG_VERSION,
 }
 
@@ -231,6 +249,7 @@ def _migrate_config(raw: dict, from_version: int) -> dict:
 
     v1 -> v2: 新增 double_click_interval_ms, double_click_pos_tolerance,
               max_errors_per_minute, auto_save_interval_s, log_retention_days
+    v2 -> v3: 新增 v2.0.1 运行期配置字段（模板/寄件人/策略/开关/目录/档案）
     """
     if from_version < 2:
         # v1 没有这些字段 → 用默认值
@@ -243,6 +262,21 @@ def _migrate_config(raw: dict, from_version: int) -> dict:
         ]:
             if key not in raw:
                 raw[key] = DEFAULT_CONFIG[key]
+
+    if from_version < 3:
+        # v2 没有 v2.0.1 运行期字段 → 用默认值补齐，避免 load_config 丢弃
+        for key in [
+            "selected_template",
+            "selected_sender",
+            "selected_strategy",
+            "auto_recognize",
+            "combo_copy",
+            "save_dir",
+            "sender_profiles",
+            "default_sender",
+        ]:
+            if key not in raw:
+                raw[key] = deepcopy(DEFAULT_CONFIG[key])
 
     return raw
 
@@ -260,7 +294,7 @@ def load_app_config() -> dict:
         with open(resource_path(APP_CONFIG_FILE), "r", encoding="utf-8") as f:
             raw = json.load(f)
         if isinstance(raw, dict):
-            for key in DEFAULT_APP_CONFIG:
+            for key in raw:
                 value = raw.get(key)
                 if isinstance(value, str) and value.strip():
                     config[key] = value.strip()
@@ -269,3 +303,18 @@ def load_app_config() -> dict:
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         pass
     return config
+
+
+def get_default_temperature(app_config: dict) -> str:
+    """读取温层默认值，缺省回退冷藏(0-4℃)。"""
+    defaults = (app_config or {}).get("sender_defaults", {}) or {}
+    value = str(defaults.get("temperature_layer", "") or "").strip()
+    return value or "冷藏(0-4℃)"
+
+
+def get_flow_strategies(app_config: dict, template_key: str) -> list:
+    """读取指定模板的流向产品策略列表，缺省返回空列表。"""
+    config = (app_config or {}).get("flow_product_config", {}) or {}
+    item = config.get(template_key, {}) or {}
+    strategies = item.get("strategies", []) or []
+    return list(strategies)

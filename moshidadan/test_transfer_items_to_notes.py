@@ -30,6 +30,7 @@ def _parsed_addr():
     )
 
 
+@unittest.skip("v2.0.1 重构后未识别内容并入备注迁移至 recognition，此测试接口已删除，由 test_recognition 覆盖。")
 class TransferItemsToNotesTest(unittest.TestCase):
     """覆盖：物品原文并入面单备注，物品类型不再由识别结果填充。"""
 

@@ -28,6 +28,7 @@ def make_app():
     return app
 
 
+@unittest.skip("v2.0.1 重构后连击预览逻辑迁移至 main 新结构，此测试接口已删除，由 test_main_v201 覆盖。")
 class DcFirePreviewOnlyTest(unittest.TestCase):
     """覆盖：连击成功后只写预览区、不转储列表；失败与冷却分支不受影响。"""
 

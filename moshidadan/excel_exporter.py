@@ -44,8 +44,37 @@ def flatten_categories(categories) -> list:
     """将 [(分类名, [字段...], 颜色), ...] 展平为字段标题列表。"""
     headers = []
     for cat in categories:
-        headers.extend(cat[1])
+        if isinstance(cat, dict):
+            headers.extend(cat.get("fields") or [])
+        else:
+            headers.extend(cat[1])
     return headers
+
+
+def _cat_name(cat) -> str:
+    """返回分类名；dict 分类支持 required 提示。"""
+    if isinstance(cat, dict):
+        name = str(cat.get("name") or "").strip()
+        if cat.get("required"):
+            name = f"{name}（必填）"
+        return name
+    return str(cat[0]) if len(cat) > 0 else ""
+
+
+def _cat_fields(cat) -> list:
+    """返回分类字段列表。"""
+    if isinstance(cat, dict):
+        return list(cat.get("fields") or [])
+    return list(cat[1]) if len(cat) > 1 else []
+
+
+def _cat_color(cat, idx) -> str:
+    """返回分类颜色；dict 优先取配置，缺省按顺序循环。"""
+    if isinstance(cat, dict):
+        color = str(cat.get("color") or "").strip()
+    else:
+        color = str(cat[2]).strip() if len(cat) > 2 else ""
+    return color or DEFAULT_HEADER_COLORS[idx % len(DEFAULT_HEADER_COLORS)]
 
 
 def write_export_excel(file_path: str, categories: list, rows: list,
@@ -74,15 +103,11 @@ def write_export_excel(file_path: str, categories: list, rows: list,
 
     col = 1
     for cat_idx, cat in enumerate(categories):
-        category_name = cat[0]
-        fields = cat[1]
+        category_name = _cat_name(cat)
+        fields = _cat_fields(cat)
         if not fields:
             continue
-        fill_color = (
-            str(cat[2]).strip()
-            if len(cat) > 2 and str(cat[2]).strip()
-            else DEFAULT_HEADER_COLORS[cat_idx % len(DEFAULT_HEADER_COLORS)]
-        )
+        fill_color = _cat_color(cat, cat_idx)
         header_fill = PatternFill(
             start_color=fill_color, end_color=fill_color, fill_type="solid"
         )

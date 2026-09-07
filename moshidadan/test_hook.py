@@ -78,11 +78,12 @@ def hook_thread():
     print(f"  Done. Clicks captured: {len(clicks)}")
     return True
 
-print("=== Hook Installation Test ===")
-t = threading.Thread(target=hook_thread, daemon=True)
-t.start()
-t.join(10)
-if t.is_alive():
-    print("TIMEOUT")
-else:
-    print("PASS")
+if __name__ == "__main__":
+    print("=== Hook Installation Test ===")
+    t = threading.Thread(target=hook_thread, daemon=True)
+    t.start()
+    t.join(10)
+    if t.is_alive():
+        print("TIMEOUT")
+    else:
+        print("PASS")

@@ -39,6 +39,7 @@ def sample_profile(**overrides):
     return {"enabled": True, "label": "", "values": values}
 
 
+@unittest.skip("v2.0.1 重构后预制信息迁移至 sender_manager，此测试接口已删除，由 test_sender_manager 覆盖。")
 class PrefillSenderFieldsTest(unittest.TestCase):
     """覆盖：剪贴板/文本识别转储到列表后，寄件人字段展示预制信息。"""
 

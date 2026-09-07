@@ -411,3 +411,28 @@ def compute_column_width(field_path: Optional[str]) -> int:
         return 100
     else:
         return 80
+
+
+def get_list_headers(template_key: str, app_config: dict) -> list:
+    """读取模板的列表展示表头，缺省空列表。"""
+    configs = (app_config or {}).get("template_configs", {}) or {}
+    item = configs.get(template_key, {}) or {}
+    return list(item.get("list_headers") or [])
+
+
+def get_export_categories(template_key: str, app_config: dict) -> list:
+    """读取模板的导出分类（含 name/color/fields/required），缺省空。"""
+    configs = (app_config or {}).get("template_configs", {}) or {}
+    item = configs.get(template_key, {}) or {}
+    return list(item.get("export_categories") or [])
+
+
+def flatten_export_fields(categories: list) -> list:
+    """按 category 顺序展平导出字段标题列表。"""
+    headers = []
+    for cat in categories or []:
+        if isinstance(cat, dict):
+            headers.extend(cat.get("fields") or [])
+        else:
+            headers.extend(list(cat[1]) if len(cat) > 1 else [])
+    return headers

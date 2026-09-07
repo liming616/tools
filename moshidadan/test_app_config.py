@@ -27,7 +27,8 @@ class LoadAppConfigTest(unittest.TestCase):
         with patch("config_manager.resource_path", return_value=self._config_path()):
             config = config_manager.load_app_config()
         self.assertEqual(config["app_name"], "产地快打")
-        self.assertEqual(config["version"], "")
+        # v2.0.1 起版本号从 app_config.json 读取：非空字符串被保留
+        self.assertEqual(config["version"], "v1.0.3")
 
     def test_missing_file_returns_default(self):
         with patch("config_manager.resource_path", return_value=self._config_path()):
@@ -39,7 +40,8 @@ class LoadAppConfigTest(unittest.TestCase):
             f.write("{not-json")
         with patch("config_manager.resource_path", return_value=self._config_path()):
             config = config_manager.load_app_config()
-        self.assertEqual(config["version"], "v1.0.3")
+        # 损坏时回退默认配置：默认 version 为空串
+        self.assertEqual(config["version"], "")
 
     def test_prefill_defaults_no_temperature_default(self):
         self.assertEqual(

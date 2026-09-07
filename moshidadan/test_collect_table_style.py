@@ -11,6 +11,7 @@ import main as main_mod
 from main import App
 
 
+@unittest.skip("v2.0.1 重构后 main 界面层迁移至 app_frame，此测试接口已删除，由 test_app_frame 覆盖。")
 class CollectTableStyleTest(unittest.TestCase):
     """Cover collect table heading font, row/header height, and adaptive width."""
 

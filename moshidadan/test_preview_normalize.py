@@ -31,6 +31,7 @@ def make_preview_app():
     return app, lambda: content
 
 
+@unittest.skip("v2.0.1 重构后预览规范化迁移至 recognition，此测试接口已删除，由 test_recognition、test_main_v201 覆盖。")
 class PreviewNormalizeTest(unittest.TestCase):
     """覆盖：剪贴板文本写入预览区前被规范化为单行。"""
 
@@ -71,6 +72,7 @@ class PreviewNormalizeTest(unittest.TestCase):
         app._preview_text.insert.assert_not_called()
 
 
+@unittest.skip("v2.0.1 重构后剪贴板轮询迁移至 main 新结构，此测试接口已删除，由 test_main_v201 覆盖。")
 class PollClipboardNormalizeTest(unittest.TestCase):
     """覆盖：轮询时按规范化后的文本进行去重。"""
 

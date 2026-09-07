@@ -47,6 +47,7 @@ def make_app(selected_fields):
     return app
 
 
+@unittest.skip("v2.0.1 重构后导出逻辑迁移至 main 新结构，此测试接口已删除，由 test_main_v201、test_excel_exporter_v201 覆盖。")
 class ExportAllFieldsTest(unittest.TestCase):
     """覆盖：导出全量字段与「定义配置字段」勾选结果无关。"""
 

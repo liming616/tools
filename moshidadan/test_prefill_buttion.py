@@ -40,6 +40,7 @@ def make_app(profiles):
     return app
 
 
+@unittest.skip("v2.0.1 重构后预制信息迁移至 sender_manager，此测试接口已删除，由 test_sender_manager、test_dialogs 覆盖。")
 class PrefillButtonTest(unittest.TestCase):
     def test_button_enabled_without_profiles(self):
         app = make_app([])

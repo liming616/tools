@@ -1,0 +1,41 @@
+{
+  "items": [
+    {
+      "fields": {
+        "name": "",
+        "phone": "",
+        "landline": "1206001",
+        "province": "",
+        "city": "",
+        "district": "",
+        "township": "",
+        "road": "",
+        "community": "",
+        "building": "",
+        "unit": "",
+        "room": "",
+        "full_address": "468室[{\"code\":1,\"mills\":,\"msg\":\"修改订单失败:收件地址校验失败\",\"requestId\":\"ffe4164d-39ab-4c2b-b9b9-4b9b5448e240\",\"subCode\":\"1206004_0225\",\"subMsg\":\"收件地址校验失败\",\"success\":false}]",
+        "full_detail": "",
+        "items": [],
+        "items_text": "[{\"code\":1206001; \"mills\":468; \"msg\":\"修改订单失败:收件地址校验失败\"; \"requestId\":\"ffe4164d-39ab-4c2b-b9b9-4b9b5448e240\"; \"subCode\":\"1206004_0225\"; \"subMsg\":\"收件地址校验失败\"; \"success\":false}]",
+        "delivery_product": "",
+        "temperature_layer": "冷藏(0-4℃)",
+        "notes": "。",
+        "raw": "",
+        "company": "",
+        "qq": "",
+        "sender_name": "",
+        "sender_phone": "",
+        "sender_landline": "",
+        "sender_address": "",
+        "sender_company": "",
+        "sender_warehouse_code": "",
+        "development_zone": "",
+        "landmark": "",
+        "payment_method": "",
+        "item_count": ""
+      },
+      "raw": ""
+    }
+  ]
+}
