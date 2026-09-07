@@ -138,16 +138,22 @@ class App:
             self._frame.insert_row(values)
 
     def _on_cell_edited(self, item, col, value):
-        """单元格编辑后同步到 _row_data。"""
-        headers = self._frame.get_tree_columns()
+        """单元格编辑后同步到 _row_data。
+
+        col 是 Treeview 列标识符（形如 "#2"），先转为表头文本再映射字段键；
+        行号取 item 在树中的 0-based 位置，避免编辑值丢失或写错行。
+        """
         try:
-            index = list(headers).index(col) - self._frame._tree.index(item)
+            row_index = self._frame._tree.index(item)
+            header = self._frame._tree.heading(str(col or ""), "text")
         except Exception:
-            index = len(self._row_data) - 1
-        if 0 <= index < len(self._row_data):
-            key = self._field_key(col)
-            if key:
-                self._row_data[index]["fields"][key] = value
+            logger.warning("单元格编辑同步失败: col=%s", col)
+            return
+        if not (0 <= row_index < len(self._row_data)):
+            return
+        key = self._field_key(header)
+        if key:
+            self._row_data[row_index]["fields"][key] = value
 
     # ---------- 剪贴板 ----------
 
@@ -453,6 +459,7 @@ class App:
     def _field_key(header):
         mapping = {
             "收件人姓名": "name",
+            "收货人": "name",
             "联系方式": "phone",
             "收件人手机": "phone",
             "收件人座机": "landline",

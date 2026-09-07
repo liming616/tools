@@ -429,6 +429,7 @@ class AppFrame(tk.Tk):
     def _field_key(header):
         mapping = {
             "收件人姓名": "name",
+            "收货人": "name",
             "联系方式": "phone",
             "收件人手机": "phone",
             "收件人座机": "landline",

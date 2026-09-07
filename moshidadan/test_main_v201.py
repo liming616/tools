@@ -149,6 +149,61 @@ class MainV201Test(unittest.TestCase):
         self.assertEqual(app._row_data, saved_rows)
         self.assertEqual(app._frame.set_status.call_args[0][0], "已识别 1 条")
 
+    def test_cell_edit_writes_back_to_correct_row(self):
+        """回归：双击编辑「收件人姓名」单元格，值必须写回对应行、对应字段。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._row_data = [
+            {"fields": {"name": "", "phone": ""}},
+            {"fields": {"name": "", "phone": ""}},
+        ]
+        frame = mock.Mock()
+        tree = mock.Mock()
+        tree.index.return_value = 0  # item 在树中的 0-based 行序号
+        tree.heading.side_effect = {
+            "#1": "序号",
+            "#2": "收件人姓名",
+            "#3": "收件人手机",
+        }.get
+        frame._tree = tree
+        app._frame = frame
+
+        # col 实为列标识符 "#2"（不是表头文本），旧实现会解析失败导致编辑丢失
+        app._on_cell_edited("iid1", "#2", "张三")
+
+        self.assertEqual(app._row_data[0]["fields"]["name"], "张三")
+        self.assertEqual(app._row_data[1]["fields"]["name"], "")
+        self.assertEqual(app._row_data[0]["fields"]["phone"], "")
+
+    def test_cell_edit_ignores_unmapped_column(self):
+        """回归：编辑「序号」这类无字段映射的列，不应写入任何字段。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._row_data = [{"fields": {"name": ""}}]
+        frame = mock.Mock()
+        tree = mock.Mock()
+        tree.index.return_value = 0
+        tree.heading.side_effect = {"#1": "序号", "#2": "收件人姓名"}.get
+        frame._tree = tree
+        app._frame = frame
+
+        app._on_cell_edited("iid1", "#1", "99")
+
+        self.assertEqual(app._row_data[0]["fields"]["name"], "")
+
+    def test_cell_edit_offical_header_maps_to_name(self):
+        """回归：JD_OFFICIAL 表头「收货人」应映射到 name，保证编辑写回。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._row_data = [{"fields": {"name": ""}}]
+        frame = mock.Mock()
+        tree = mock.Mock()
+        tree.index.return_value = 0
+        tree.heading.side_effect = {"#1": "序号", "#2": "收货人"}.get
+        frame._tree = tree
+        app._frame = frame
+
+        app._on_cell_edited("iid1", "#2", "王五")
+
+        self.assertEqual(app._row_data[0]["fields"]["name"], "王五")
+
 
 if __name__ == "__main__":
     unittest.main()
