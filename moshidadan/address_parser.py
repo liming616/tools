@@ -13,9 +13,14 @@
 纯本地实现，无 ML 依赖，无外部数据文件。
 """
 
+import json
+import os
 import re
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Optional
+
+from paths import app_dir
 
 # ======================== 数据结构 ========================
 
@@ -731,6 +736,10 @@ def parse_address(text: str) -> ParsedAddress:
     if not text or not text.strip():
         return result
 
+    # ---- 加载行政区划（内置 + 外部 admin_data.json 合并，按 mtime 热重载）----
+    refresh_admin_data()
+    admin_data = load_external_admin_data()
+
     # ---- 预处理 ----
     text = _normalize(text)
     pos = 0  # 当前匹配位置
@@ -738,7 +747,7 @@ def parse_address(text: str) -> ParsedAddress:
     # ---- Phase A: FMM 行政区域匹配 ----
 
     # Step 1: 匹配省份
-    province_candidates = sorted(ADMIN_DATA.keys(), key=len, reverse=True)
+    province_candidates = sorted(admin_data.keys(), key=len, reverse=True)
     province_key, prov_len = _fmm_match(text, 0, province_candidates)
     if not province_key:
         # 无法识别省份 → 整个字符串交给详细组件提取
@@ -751,7 +760,7 @@ def parse_address(text: str) -> ParsedAddress:
     pos = prov_len
 
     # Step 2: 匹配城市
-    cities = ADMIN_DATA[province_key]
+    cities = admin_data[province_key]
     city_candidates = sorted(cities.keys(), key=len, reverse=True)
 
     city_key, city_len = _fmm_match(text, pos, city_candidates)
@@ -1046,3 +1055,54 @@ if __name__ == "__main__":
         print(f"  其他:      {result.detail or '(无)'}")
         print(f"  完整地址:  {result.full_address}")
         print(f"  详细地址:  {result.full_detail}")
+
+
+# ======================== 行政区划外部词典加载 ========================
+
+# 可写目录下的外部行政区划词典（源码运行时为项目目录，打包后为 exe 所在目录）。
+# 结构：{省全名: {市全名: [区县列表]}}，与内置 ADMIN_DATA 一致。
+_ADMIN_DATA_FILE = os.path.join(app_dir(), "admin_data.json")
+_admin_cache_mtime: Optional[float] = None
+_admin_merged: Optional[dict] = None
+
+
+def load_external_admin_data() -> dict:
+    """合并内置行政区划与外部 admin_data.json，返回生效词典。
+
+    外部词典结构为 ``{省全名: {市全名: [区县列表]}}``；同名省市以外部为准。
+    文件缺失、损坏或为空时回退内置默认，不抛异常。
+    """
+    global _admin_merged
+    if _admin_merged is not None:
+        return _admin_merged
+
+    merged: dict = deepcopy(ADMIN_DATA)
+    try:
+        if os.path.exists(_ADMIN_DATA_FILE):
+            with open(_ADMIN_DATA_FILE, "r", encoding="utf-8") as f:
+                external = json.load(f)
+            if isinstance(external, dict) and external:
+                for prov, cities in external.items():
+                    if not isinstance(cities, dict):
+                        continue
+                    merged.setdefault(str(prov), {}).update(
+                        {str(k): list(v) for k, v in cities.items() if isinstance(v, list)}
+                    )
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        pass
+
+    _admin_merged = merged
+    return merged
+
+
+def refresh_admin_data() -> None:
+    """按文件 mtime 热重载外部行政区划词典。"""
+    global _admin_cache_mtime, _admin_merged
+    try:
+        mtime = os.path.getmtime(_ADMIN_DATA_FILE)
+        if _admin_cache_mtime != mtime:
+            _admin_merged = None
+            load_external_admin_data()
+            _admin_cache_mtime = mtime
+    except OSError:
+        pass

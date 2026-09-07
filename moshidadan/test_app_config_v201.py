@@ -58,6 +58,10 @@ class AppConfigV201Test(unittest.TestCase):
         self.assertEqual(app["flow_product_config"], self.cfg["flow_product_config"])
         self.assertNotEqual(get_flow_strategies(app, "JD_MONTHLY"), [])
 
+    def test_surname_list_present(self):
+        """app_config 应保留 surname_list 字段。"""
+        self.assertIn("surname_list", self.cfg)
+
 
 if __name__ == "__main__":
     unittest.main()

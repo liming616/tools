@@ -26,6 +26,7 @@ from template_manager import (
 from recognition import normalize_text, recognize_batch
 from flow_product import resolve_product
 from sender_manager import SenderManager
+from parser import configure_surnames
 from data_store import (
     save_collected_by_template, load_collected_by_template,
     clear_collected_by_template,
@@ -507,6 +508,7 @@ def main() -> None:
     install_crash_handler()
     config = load_config()
     app_config = load_app_config()
+    configure_surnames(app_config)
     try:
         app = App(config, app_config)
         app._frame.mainloop()

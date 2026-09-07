@@ -19,21 +19,30 @@
   "selected_strategy": {
     "JD_MONTHLY": "p1"
   },
-  "auto_recognize": true,
-  "combo_copy": false,
+  "auto_recognize": false,
+  "combo_copy": true,
   "save_dir": "",
   "sender_profiles": [
     {
       "label": "寄件人1",
-      "sender_name": "1",
-      "sender_phone": "3",
-      "sender_landline": "",
-      "sender_address": "12",
-      "items_text": "12",
-      "temperature_layer": "12"
+      "sender_name": "贝贝",
+      "sender_phone": "13011112222",
+      "sender_landline": "85025556",
+      "sender_address": "北京市大兴区亦庄经济开发区京东总部2号楼14层",
+      "items_text": "水果",
+      "temperature_layer": "冷藏(0-4℃)"
     },
     {
       "label": "寄件人2",
+      "sender_name": "",
+      "sender_phone": "",
+      "sender_landline": "",
+      "sender_address": "",
+      "items_text": "",
+      "temperature_layer": ""
+    },
+    {
+      "label": "寄件人3",
       "sender_name": "",
       "sender_phone": "",
       "sender_landline": "",

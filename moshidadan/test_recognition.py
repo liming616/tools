@@ -30,6 +30,16 @@ class RecognitionTest(unittest.TestCase):
         rows = recognize_batch("张三 13800138000 北京市朝阳区xx路\n李四 13900139000 上海市浦东新区博云路2号")
         self.assertEqual(len(rows), 2)
 
+    def test_notes_clean_without_address_junk(self):
+        fields = recognize_line("张三 13800138000 北京市朝阳区xx路1号 苹果x2 周末配送")
+        self.assertNotIn("13800138000", fields["notes"])
+        self.assertNotIn("朝阳区xx路", fields["notes"])
+        self.assertIn("周末配送", fields["notes"])
+
+    def test_notes_prefer_explicit_tag(self):
+        fields = recognize_line("地址：北京市朝阳区xx路1号\n备注：冷冻保存")
+        self.assertIn("冷冻保存", fields["notes"])
+
 
 if __name__ == "__main__":
     unittest.main()

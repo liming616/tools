@@ -289,7 +289,7 @@ def parse_order(text: str) -> OrderInfo:
     # 地址（标签）
     m = RE_ADDRESS_TAGGED.search(text)
     if m:
-        order.address = m.group(1).strip()
+        order.address = _extract_address_tag(text)
         mark_consumed(m)
 
     # 商品（标签）
@@ -325,6 +325,8 @@ def parse_order(text: str) -> OrderInfo:
         m = RE_ADDRESS_PROVINCE.search(text)
         if m:
             order.address = m.group(1)
+        else:
+            order.address = _detect_address_without_province(text)
 
     # --- 2b. 「地址 电话 姓名 物品」同行格式 ---
     # 例："北京市大兴区亦庄经济开发区京东总部2号楼 15811111111 李明 两箱大桃"
@@ -377,15 +379,16 @@ def parse_order(text: str) -> OrderInfo:
                             if tok in (order.phone, order.landline):
                                 continue
                             candidate = _match_name_candidate(tok)
-                            if candidate and _is_surname_name(candidate):
+                            if candidate and _is_surname_name(candidate) and _score_name_candidate(tok) >= 0.6:
                                 name = candidate
                                 break
                     if not name:
                         for tok in tokens:
                             if tok in (order.phone, order.landline):
                                 continue
-                            name = _match_name_candidate(tok)
-                            if name:
+                            candidate = _match_name_candidate(tok)
+                            if candidate and _score_name_candidate(tok) >= 0.6:
+                                name = candidate
                                 break
                     if name:
                         order.name = name
@@ -398,6 +401,9 @@ def parse_order(text: str) -> OrderInfo:
                             continue
                         # 跳过地址尾段残留（路/街/巷/号/楼/栋/区/苑/园等，且无量词）
                         if re.search(r'[路街巷号栋楼座单元室区苑园]', tok) and not re.search(rf'[{MEASURE_WORDS}]', tok):
+                            continue
+                        # 仅当 token 带数量/量词特征时才归为商品，否则留作备注残段
+                        if not _looks_like_product(tok):
                             continue
                         for it in parse_items(tok):
                             order.items.append(it)
@@ -474,11 +480,15 @@ def parse_order(text: str) -> OrderInfo:
                         continue
                     items = parse_items(seg)
                     if items:
-                        order.items.extend(items)
+                        items = [it for it in items if not _is_name_token(it.get("name", ""))]
+                        if items:
+                            order.items.extend(items)
             else:
                 items = parse_items(line)
                 if items:
-                    order.items.extend(items)
+                    items = [it for it in items if not _is_name_token(it.get("name", ""))]
+                    if items:
+                        order.items.extend(items)
 
     # 未识别出的内容归入面单备注，避免整体落入自定义信息
     unrecognized = _unrecognized_text(text, order, consumed_ranges)
@@ -665,7 +675,7 @@ def parse_items(text: str, skip_phone_addr: bool = True) -> list[dict]:
                     qty = int(m.group(2))
 
         # 去掉名称两端的无意义字符
-        name = name.strip('，,。.、 \t*×xX')
+        name = _clean_item_name(name)
 
         if name:
             items.append({
@@ -755,6 +765,11 @@ def _unrecognized_text(text: str, order: OrderInfo,
         remaining = remaining.replace(tok, " ", 1)
     # 清理空白与分隔符，避免整行残渣进入备注
     remaining = re.sub(r'[\s，,、;；:：\-]+', ' ', remaining).strip(" ，,、;；:：-")
+    # 剥离电话残段与地址特征 token，避免商品/地址噪点漏进备注
+    remaining = RE_PHONE.sub(" ", remaining)
+    remaining = RE_LANDLINE_BOUNDED.sub(" ", remaining)
+    remaining = _ADDR_NAME_TOKEN_RE.sub(" ", remaining)
+    remaining = re.sub(r'\s+', ' ', remaining).strip(" ，,、;；:：-")
     return remaining
 
 
@@ -879,3 +894,146 @@ def parse_items_safe(text: str) -> list[dict]:
     except Exception as e:
         logger.warning("parse_items_safe: 商品解析异常 — %s", e)
         return []
+
+
+# ---------- 地址标签切块（不再贪婪吞行尾）----------
+
+# 下一个标签（2-8 个汉字 + 冒号）或换行，作为地址标签值的截断边界
+_TAG_BOUNDARY_RE = re.compile(r"(?:[\u4e00-\u9fa5]{2,8}[：:])|[\n\r]+")
+
+
+def _extract_tagged_value(text: str, start: int) -> str:
+    """从标签后的值起点提取值，切到下一个标签或换行为止。"""
+    remaining = text[start:]
+    m = _TAG_BOUNDARY_RE.search(remaining)
+    if m:
+        value = remaining[:m.start()]
+        return value.strip()
+    return remaining.strip()
+
+
+def _extract_address_tag(text: str) -> str:
+    """提取地址标签值，只切到下一个标签或换行，不吃掉同行商品/备注。"""
+    m = RE_ADDRESS_TAGGED.search(text)
+    if not m:
+        return ""
+    return _extract_tagged_value(text, m.start(1))
+
+
+# ---------- 无省市区前缀地址兜底 ----------
+
+# 命中：1-10 个汉字 + 地址特征词，再接 0-12 个字符与可选门牌后缀
+_ADDR_FEATURE_RE = re.compile(
+    r"[\u4e00-\u9fa5]{1,10}(?:路|街|道|巷|苑|园|小区|大厦|广场)"
+    r"[\u4e00-\u9fa50-9A-Za-z]{0,12}(?:号|栋|楼|室|单元|座)?"
+)
+
+
+def _detect_address_without_province(text: str) -> str:
+    """检测无省市区前缀但含地址特征词的一段，返回首个疑似地址。"""
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        if RE_PRODUCT_LINE.match(line) or RE_NOTES.match(line):
+            continue
+        m = _ADDR_FEATURE_RE.search(line)
+        if m:
+            return m.group(0)
+    return ""
+
+
+# ---------- 商品名精准提取（剥数量 / 剔地址 / 剔电话）----------
+
+_ITEM_ADDR_TOKEN_RE = re.compile(
+    r"[\u4e00-\u9fa50-9A-Za-z]{1,15}(?:路|街|巷|号|楼|栋|苑|园|小区|大厦|室)"
+)
+
+
+def _clean_item_name(raw: str) -> str:
+    """清洗单个商品名：去数量、去地址特征、去电话、去空白。"""
+    name = raw.strip(" \t，,。.、;；*×xX")
+    parts = re.split(r"[\s,，、;；]+", name)
+    clean_parts = []
+    for p in parts:
+        p = p.strip()
+        if not p:
+            continue
+        if _ITEM_ADDR_TOKEN_RE.fullmatch(p) or RE_PHONE.fullmatch(p) or RE_LANDLINE.fullmatch(p):
+            continue
+        clean_parts.append(p)
+    name = " ".join(clean_parts)
+    if not name:
+        return ""
+    m = re.match(r"^(.*?).?[xX\*×]\s*(\d+)$", name)
+    if m:
+        name = m.group(1).strip()
+    m = re.match(
+        r"^(.*?)\s*(\d+)\s*(?:件|个|盒|箱|套|双|条|瓶|袋|包|斤|公斤|千克|吨|把|只|本|台|部|支|张|块|颗|粒)$",
+        name,
+    )
+    if m:
+        name = m.group(1).strip()
+    return name.strip(" \t，,。.、;；*×xX")
+
+
+# ---------- 姓名候选打分 ----------
+
+# 商品特征（量词/数量/类目后缀），作为姓名强否决项
+_PRODUCT_FEATURE_RE = re.compile(
+    r"(?:[xX*×]\d*|\d+\s*(?:件|个|盒|箱|套|双|条|瓶|袋|包|斤|公斤|千克|吨|把|只|本|台|部|支|张|块|颗|粒))"
+    r"|[\u4e00-\u9fa5]*(?:服|衣|裤|果|奶|茶|箱|袋|书|菜|米|面|油)[\u4e00-\u9fa5]*$"
+)
+
+# 常见名用字
+_COMMON_GIVEN = set("伟芳明丽强静磊敏军杰霞涛勇刚毅晨鑫浩鹏宇峰洋楠雪琳珊梅兰菊月红梅")
+
+# 地址特征 token（用于姓名扣分，同时供备注兜底识别地址残段）
+_ADDR_NAME_TOKEN_RE = re.compile(
+    r"[\u4e00-\u9fa5]{1,12}(?:路|街|巷|号|楼|栋|苑|园|小区|大厦|广场|室|单元)"
+)
+
+
+def _score_name_candidate(tok: str) -> float:
+    """姓名候选打分：0.0 为基本不可能，1.0 为非常像姓名。"""
+    m = re.match(r"^([\u4e00-\u9fa5]{2,4})\d*$", tok)
+    if not m:
+        return 0.0
+    name = m.group(1)
+
+    if _PRODUCT_FEATURE_RE.search(name):
+        return 0.05
+    if _ADDR_NAME_TOKEN_RE.fullmatch(name) or any(t in name for t in NAME_BLACKLIST):
+        return 0.1
+    if re.search(rf"^[{CN_NUM_CHARS}]+[{MEASURE_WORDS}]", name):
+        return 0.05
+
+    score = 0.0
+    if _is_surname_name(name):
+        score += 0.45
+    if any(ch in _COMMON_GIVEN for ch in name[1:]):
+        score += 0.3
+    if 2 <= len(name) <= 3:
+        score += 0.15
+    elif len(name) == 4:
+        score += 0.08
+    if name[:2] in _configured_compound_surnames:
+        score += 0.1
+    return min(score, 1.0)
+
+
+def _looks_like_product(tok: str) -> bool:
+    """同行格式中判断 token 是否像商品（含数量/量词特征），否则视为备注残段。"""
+    if not tok:
+        return False
+    if RE_ITEM_QTY.search(tok) or RE_ITEM_QTY_CN.search(tok) or RE_ITEM_QTY_CN_NUM.match(tok):
+        return True
+    return bool(re.search(rf"[{MEASURE_WORDS}]", tok))
+
+
+def _is_name_token(tok: str) -> bool:
+    """判断 token 是否更像姓名而非商品（命中姓氏且评分达标）。"""
+    candidate = _match_name_candidate(tok)
+    if not candidate:
+        return False
+    return _is_surname_name(candidate) and _score_name_candidate(tok) >= 0.6
