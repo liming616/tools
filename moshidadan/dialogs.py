@@ -23,7 +23,8 @@ class SenderConfigDialog(tk.Toplevel):
         self._strategy_var = tk.StringVar(value="")
 
         self.title("寄件信息配置")
-        self.geometry("520x520")
+        """寄件信息配置面板"""
+        self.geometry("600x680")
         self.resizable(False, False)
         self.grab_set()
 
@@ -71,7 +72,11 @@ class SenderConfigDialog(tk.Toplevel):
         if not strategies:
             ttk.Label(flow, text="当前模板未配置流向策略").pack(anchor="w")
         else:
-            self._strategy_var.set(strategies[0]["id"])
+            # 优先回显已保存的选中策略；缺失或已不在策略列表时才回退第一条，
+            # 避免打开弹窗后默认选中第一条导致保存时误覆盖用户之前的配置。
+            saved = ((self._config.get("selected_strategy") or {}).get(self._template_key) or "")
+            strategy_ids = {s.get("id") for s in strategies}
+            self._strategy_var.set(saved if saved in strategy_ids else strategies[0]["id"])
             for s in strategies:
                 ttk.Radiobutton(
                     flow, text=s.get("name", s.get("id", "")), value=s.get("id", ""),

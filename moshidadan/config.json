@@ -14,10 +14,11 @@
   "log_retention_days": 30,
   "prefill_profiles": [],
   "export_field_selection": [],
-  "selected_template": "JD_MONTHLY",
+  "selected_template": "JD_OFFICIAL",
   "selected_sender": "寄件人1",
   "selected_strategy": {
-    "JD_MONTHLY": "p1"
+    "JD_MONTHLY": "p2",
+    "JD_OFFICIAL": "p2"
   },
   "auto_recognize": false,
   "combo_copy": true,

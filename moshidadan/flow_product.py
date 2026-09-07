@@ -3,15 +3,34 @@
 规则：先市后省，rules 顺序首个命中，未命中走 fallback_product。
 """
 
+_REGION_SUFFIXES = (
+    "壮族自治区", "回族自治区", "维吾尔自治区", "自治区",
+    "特别行政区", "省", "市",
+)
+
+
+def _normalize_region(name: str) -> str:
+    """去区域名常见行政后缀，使识别值（如 广西壮族）与规则表（广西）可对齐。"""
+    name = (name or "").strip()
+    for suffix in _REGION_SUFFIXES:
+        if name.endswith(suffix):
+            return name[: -len(suffix)].strip()
+    return name
+
 
 def _hit_rule(rule: dict, province: str, city: str) -> bool:
     """判断规则是否命中：优先城市，其次省份。"""
-    cities = [str(c).strip() for c in (rule.get("cities") or []) if str(c).strip()]
-    provinces = [str(p).strip() for p in (rule.get("provinces") or []) if str(p).strip()]
+    cities = [_normalize_region(str(c)) for c in (rule.get("cities") or [])]
+    cities = [c for c in cities if c]
+    provinces = [_normalize_region(str(p)) for p in (rule.get("provinces") or [])]
+    provinces = [p for p in provinces if p]
 
-    if cities and city and city in cities:
+    city_n = _normalize_region(city)
+    province_n = _normalize_region(province)
+
+    if cities and city_n and city_n in cities:
         return True
-    if provinces and province and province in provinces:
+    if provinces and province_n and province_n in provinces:
         return True
     return False
 
