@@ -15,11 +15,11 @@
   "prefill_profiles": [],
   "export_field_selection": [],
   "selected_template": "JD_MONTHLY",
-  "selected_sender": "寄件人3",
+  "selected_sender": "寄件人1",
   "selected_strategy": {
     "JD_MONTHLY": "p1"
   },
-  "auto_recognize": true,
+  "auto_recognize": false,
   "combo_copy": true,
   "save_dir": "D:/dingdong673/Documents",
   "sender_profiles": [

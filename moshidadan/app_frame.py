@@ -157,8 +157,7 @@ class AppFrame(tk.Tk):
 
         right = ttk.Frame(header, style="Card.TFrame")
         right.pack(side=tk.RIGHT)
-        ttk.Button(right, text="？", width=3, style="Outline.TButton",
-                   command=lambda: self._fire(self.on_help_clicked)).pack(side=tk.LEFT, padx=(0, 6))
+        self._build_help_button(right)
         ttk.Button(right, text="寄件信息配置", style="Outline.TButton",
                    command=lambda: self._fire(self.on_config_clicked)).pack(side=tk.LEFT, padx=(0, 8))
         ttk.Button(right, text="文件保存位置", style="Outline.TButton",
@@ -500,5 +499,41 @@ class AppFrame(tk.Tk):
             return str(fields.get("phone") or fields.get("landline") or "")
         key = self._field_key(header)
         return str(fields.get(key, "") if key else "")
+
+    def _build_help_button(self, parent: ttk.Frame) -> None:
+        """绘制圆形帮助按钮（Canvas 圆环 + ?），悬停与点击反馈。"""
+        size = 36
+        self._help_canvas = tk.Canvas(
+            parent, width=size, height=size, bg=COLOR_BG,
+            highlightthickness=0, bd=0, cursor="hand2",
+        )
+        pad = 2
+        self._help_circle = self._help_canvas.create_oval(
+            pad, pad, size - pad, size - pad,
+            outline=COLOR_BLUE, fill=COLOR_BG, width=1.6,
+        )
+        self._help_text = self._help_canvas.create_text(
+            size / 2, size / 2, text="?", anchor="center",
+            font=("Microsoft YaHei", 10, "bold"), fill=COLOR_BLUE,
+        )
+        # 依据字形 bbox 动态居中：让问号视觉中心精确对齐圆心，避免字体基线偏差。
+        text_bbox = self._help_canvas.bbox(self._help_text)
+        if text_bbox:
+            cx = cy = size / 2
+            dx = cx - (text_bbox[0] + text_bbox[2]) / 2
+            dy = cy - (text_bbox[1] + text_bbox[3]) / 2
+            self._help_canvas.move(self._help_text, dx, dy)
+        self._help_canvas.bind(
+            "<Button-1>", lambda e: self._fire(self.on_help_clicked)
+        )
+        self._help_canvas.bind(
+            "<Enter>",
+            lambda e: self._help_canvas.itemconfigure(self._help_circle, fill=COLOR_SELECT_BG),
+        )
+        self._help_canvas.bind(
+            "<Leave>",
+            lambda e: self._help_canvas.itemconfigure(self._help_circle, fill=COLOR_BG),
+        )
+        self._help_canvas.pack(side=tk.LEFT, padx=(0, 6))
 
     # 面板切换时切换开关样式
