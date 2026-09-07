@@ -61,6 +61,7 @@ class AppFrame(tk.Tk):
         self._config = config or {}
         self._app_config = app_config or {}
         self._template_key = self._config.get("selected_template", "JD_MONTHLY")
+        self._template_meta = self._parse_template_options(self._app_config)
         self._list_headers = list(self._resolve_list_headers())
         self._sender_sel = tk.StringVar(value=self._config.get("selected_sender", "寄件人1"))
         self._auto_var = tk.BooleanVar(value=bool(self._config.get("auto_recognize", True)))
@@ -150,10 +151,12 @@ class AppFrame(tk.Tk):
 
         self._template_var = tk.StringVar(value=self._template_label(self._template_key))
         combo = ttk.Combobox(header, textvariable=self._template_var, state="readonly",
-                             values=("京东月结模板", "京东散单官网模板", "顺丰模板"),
+                             values=tuple(self._template_meta["labels"]),
                              width=18, font=FONT_BODY)
         combo.pack(side=tk.LEFT)
+        combo.configure(postcommand=self._on_template_popdown)
         combo.bind("<<ComboboxSelected>>", self._on_template_selected)
+        self._template_combo = combo
 
         right = ttk.Frame(header, style="Card.TFrame")
         right.pack(side=tk.RIGHT)
@@ -189,7 +192,7 @@ class AppFrame(tk.Tk):
             self._sender_buttons[label] = btn
 
         paned = ttk.Frame(middle, style="Card.TFrame")
-        paned.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(14, 0))
+        paned.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 0))
         self._build_sender_card(paned)
         self._build_receiver_card(paned)
         # 初始化回填当前选中寄件人档案
@@ -284,8 +287,12 @@ class AppFrame(tk.Tk):
             cb()
 
     def _on_template_selected(self, event=None) -> None:
-        mapping = {"京东月结模板": "JD_MONTHLY", "京东散单官网模板": "JD_OFFICIAL", "顺丰模板": "SF"}
-        key = mapping.get(self._template_var.get())
+        label = self._template_var.get()
+        # 禁用模板不可选中：恢复为当前模板并忽略本次选择
+        if label in self._template_meta["disabled_labels"]:
+            self._template_var.set(self._template_label(self._template_key))
+            return
+        key = self._template_meta["label_to_key"].get(label)
         if not key:
             return
         self._config["selected_template"] = key
@@ -537,3 +544,54 @@ class AppFrame(tk.Tk):
         self._help_canvas.pack(side=tk.LEFT, padx=(0, 6))
 
     # 面板切换时切换开关样式
+
+    def _on_template_popdown(self) -> None:
+        """下拉弹出时调度置灰，等待 Tk 完成列表填充后再着色。"""
+        self.after_idle(self._tint_disabled_templates)
+
+    def _tint_disabled_templates(self) -> None:
+        """给下拉列表中的禁用模板设置灰色前景色。"""
+        combo = getattr(self, "_template_combo", None)
+        if combo is None:
+            return
+        values = list(combo.cget("values") or ())
+        try:
+            popdown = combo.tk.call("ttk::combobox::PopdownWindow", combo)
+            listbox = popdown + ".f.l"
+            size = combo.tk.call(listbox, "size")
+        except tk.TclError:
+            return
+        for i in range(size):
+            label = values[i] if i < len(values) else ""
+            foreground = "#AAAAAA" if label in self._template_meta["disabled_labels"] else "#000000"
+            combo.tk.call(listbox, "itemconfigure", i, "-foreground", foreground)
+
+    @staticmethod
+    def _parse_template_options(app_config) -> dict:
+        """从 app_config 的 templates.options 解析下拉元数据。
+
+        返回 dict，包含：
+          - labels: 全部模板 label（含禁用项，供下拉展示）
+          - label_to_key: label -> key 映射
+          - disabled_labels: 被禁用模板的 label 集合
+        """
+        options = (app_config or {}).get("templates", {}).get("options") or []
+        labels: list[str] = []
+        label_to_key: dict[str, str] = {}
+        disabled_labels: set[str] = set()
+        for option in options:
+            if not isinstance(option, dict):
+                continue
+            key = option.get("key")
+            label = option.get("label", key)
+            if not key or not label:
+                continue
+            labels.append(label)
+            label_to_key[label] = key
+            if not option.get("enabled", True):
+                disabled_labels.add(label)
+        return {
+            "labels": labels,
+            "label_to_key": label_to_key,
+            "disabled_labels": disabled_labels,
+        }
