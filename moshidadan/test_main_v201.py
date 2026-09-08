@@ -232,6 +232,41 @@ class MainV201Test(unittest.TestCase):
 
         self.assertEqual(app._row_data[0]["fields"]["name"], "王五")
 
+    def test_on_select_all_updates_rows(self):
+        app = main_mod.App.__new__(main_mod.App)
+        app._row_data = [
+            {"fields": {"name": "a"}, "selected": False},
+            {"fields": {"name": "b"}, "selected": False},
+        ]
+        app._on_select_all(True)
+        self.assertTrue(all(r["selected"] for r in app._row_data))
+        app._on_select_all(False)
+        self.assertTrue(all(not r["selected"] for r in app._row_data))
+
+    def test_delete_selected_rows_removes_checked(self):
+        app = main_mod.App.__new__(main_mod.App)
+        app._row_data = [
+            {"fields": {"name": "a"}, "selected": True},
+            {"fields": {"name": "b"}, "selected": False},
+        ]
+        app._template_key = "JD_MONTHLY"
+        app._frame = mock.Mock()
+        with mock.patch.object(main_mod, "messagebox") as msg, \
+                mock.patch.object(main_mod, "save_collected_by_template") as save:
+            msg.askyesno.return_value = True
+            app._delete_selected_rows()
+        self.assertEqual(len(app._row_data), 1)
+        self.assertEqual(app._row_data[0]["fields"]["name"], "b")
+        save.assert_called_once_with("JD_MONTHLY", app._row_data)
+
+    def test_delete_selected_rows_prompts_when_none(self):
+        app = main_mod.App.__new__(main_mod.App)
+        app._row_data = [{"fields": {"name": "a"}, "selected": False}]
+        with mock.patch.object(main_mod, "messagebox") as msg:
+            app._delete_selected_rows()
+        msg.showinfo.assert_called_once()
+        self.assertEqual(len(app._row_data), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

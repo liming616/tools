@@ -1,6 +1,7 @@
 """产地快打主窗口布局：顶栏/寄件人选项卡/寄收区/列表/一键保存/版本号。"""
 
 import os
+import re
 import sys
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -48,6 +49,11 @@ WIDE_COLUMN_WIDTHS = {
     "运单备注": 360,
 }
 
+# 列表多选：选择列名与勾选状态字形
+SELECT_COL = "选择"
+CHECK_ON = "☑"
+CHECK_OFF = "☐"
+
 
 class AppFrame(tk.Tk):
     """产地快打主窗口。
@@ -64,9 +70,10 @@ class AppFrame(tk.Tk):
         self._template_meta = self._parse_template_options(self._app_config)
         self._list_headers = list(self._resolve_list_headers())
         self._sender_sel = tk.StringVar(value=self._config.get("selected_sender", "寄件人1"))
-        self._auto_var = tk.BooleanVar(value=bool(self._config.get("auto_recognize", True)))
-        self._combo_var = tk.BooleanVar(value=bool(self._config.get("combo_copy", False)))
+        self._auto_var = tk.BooleanVar(value=bool(self._config.get("auto_recognize", False)))
+        self._combo_var = tk.BooleanVar(value=bool(self._config.get("combo_copy", True)))
         self._version = str(app_config.get("version", "")).strip()
+        self._focus_target = ""
 
         # 外部回调（由 main.App 注入）
         self.on_template_changed = None
@@ -77,6 +84,9 @@ class AppFrame(tk.Tk):
         self.on_config_clicked = None
         self.on_save_dir_clicked = None
         self.on_help_clicked = None
+        self.on_row_checked = None
+        self.on_select_all = None
+        self.on_delete_selected = None
 
         self._build_style()
         self._build_ui()
@@ -119,7 +129,7 @@ class AppFrame(tk.Tk):
 
         style.configure("Recognize.TButton", font=("Microsoft YaHei", 10, "bold"),
                         background=COLOR_BLUE, foreground="#FFFFFF",
-                        bordercolor=COLOR_BLUE, padding=(10, 14))
+                        bordercolor=COLOR_BLUE, padding=(15, 7))
         style.map("Recognize.TButton", background=[("active", COLOR_BLUE_DIM)])
 
         style.configure("Tab.TButton", font=FONT_BODY, background=COLOR_BG,
@@ -196,7 +206,15 @@ class AppFrame(tk.Tk):
         self._build_sender_card(paned)
         self._build_receiver_card(paned)
         # 初始化回填当前选中寄件人档案
-        self._load_sender_profile(self._sender_sel.get())
+        self._load_sender_texts(self._sender_sel.get())
+
+        # 工具行：删除数据（左侧，与模板下拉/寄件人标签对齐）与文本识别（右侧）同一水平
+        action_row = ttk.Frame(self, style="Card.TFrame")
+        action_row.pack(fill=tk.X, padx=pad, pady=(0, 8))
+        ttk.Button(action_row, text="删除数据", style="Outline.TButton",
+                   command=lambda: self._fire(self.on_delete_selected)).pack(side=tk.LEFT)
+        ttk.Button(action_row, text="文本识别", style="Recognize.TButton",
+                   command=lambda: self._fire(self.on_recognize)).pack(side=tk.RIGHT)
 
         # 列表区
         table_wrap = ttk.Frame(self, style="Card.TFrame")
@@ -216,7 +234,7 @@ class AppFrame(tk.Tk):
                   font=FONT_BODY).pack(side=tk.LEFT)
 
     def _build_sender_card(self, parent: ttk.Frame) -> None:
-        """寄件人信息卡片：与选中寄件人联动。"""
+        """寄件人信息卡片：与选中寄件人联动，使用单行文本框。"""
         card = tk.Frame(parent, bg=COLOR_BG, bd=1, relief=tk.SOLID,
                         highlightbackground=COLOR_BORDER, highlightcolor=COLOR_BORDER,
                         highlightthickness=1)
@@ -226,21 +244,18 @@ class AppFrame(tk.Tk):
         tk.Label(card, text="寄", font=("Microsoft YaHei", 26, "bold"),
                  bg=COLOR_BG, fg=COLOR_TEXT, padx=28, pady=20).pack(side=tk.RIGHT)
 
-        self._sender_vars = {}
-        fields = ["寄件人姓名", "寄件人手机", "寄件人座机", "寄件人地址", "物品类型", "温层"]
-        grid = tk.Frame(body, bg=COLOR_BG)
-        grid.pack(fill=tk.X)
-        for i, label in enumerate(fields):
-            row, col = divmod(i, 3)
-            tk.Label(grid, text=label, bg=COLOR_BG, fg=COLOR_TEXT_DIM,
-                     font=FONT_BODY).grid(row=row, column=col * 2, sticky="w", padx=(0, 6), pady=4)
-            var = tk.StringVar(value="")
-            tk.Entry(grid, textvariable=var, width=26, font=FONT_BODY).grid(
-                row=row, column=col * 2 + 1, sticky="ew", padx=(0, 18), pady=4)
-            self._sender_vars[label] = var
-        grid.grid_columnconfigure(1, weight=1)
-        grid.grid_columnconfigure(3, weight=1)
-        grid.grid_columnconfigure(5, weight=1)
+        # 与收件人区域一致的大文本框，内容始终为单行
+        self._sender_text = tk.Text(body, height=6, wrap=tk.NONE, font=FONT_BODY,
+                                    bg="#FFFFFF", fg=COLOR_TEXT, relief=tk.FLAT,
+                                    borderwidth=1, highlightbackground=COLOR_BORDER,
+                                    highlightthickness=1, padx=6, pady=4)
+        self._sender_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        # 禁止回车换行与多行粘贴，保证仅显示一行数据
+        self._sender_text.bind("<Return>", self._on_sender_key_return)
+        self._sender_text.bind("<<Paste>>", self._on_sender_paste)
+        # 记录用户最后进入的文本框，供剪贴板内容焦点路由
+        self._sender_text.bind("<FocusIn>", lambda e: self._mark_focus_target("sender"))
+        self._sender_text.bind("<Button-1>", lambda e: self._mark_focus_target("sender"))
 
     def _build_receiver_card(self, parent: ttk.Frame) -> None:
         """收件人文本区卡片。"""
@@ -257,11 +272,9 @@ class AppFrame(tk.Tk):
                                        borderwidth=1, highlightbackground=COLOR_BORDER,
                                        highlightthickness=1, padx=6, pady=4)
         self._receiver_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        # 按钮放到收件人识别大框下方，独立一行靠右，类似底部一键保存
-        btn_row = ttk.Frame(parent, style="Card.TFrame")
-        btn_row.pack(fill=tk.X, pady=(10, 0))
-        ttk.Button(btn_row, text="文本识别", style="Recognize.TButton",
-                   command=lambda: self._fire(self.on_recognize)).pack(side=tk.RIGHT)
+        # 记录用户最后进入的文本框，供剪贴板内容焦点路由
+        self._receiver_text.bind("<FocusIn>", lambda e: self._mark_focus_target("receiver"))
+        self._receiver_text.bind("<Button-1>", lambda e: self._mark_focus_target("receiver"))
 
     def _build_table(self, parent: ttk.Frame) -> None:
         """构建列表展示区（表头随模板切换）。"""
@@ -279,6 +292,8 @@ class AppFrame(tk.Tk):
         hsb.grid(row=1, column=0, sticky="ew")
         # 单元格可编辑
         self._tree.bind("<Double-1>", self._on_cell_edit)
+        # 选择列：单击勾选、点击表头全选
+        self._tree.bind("<Button-1>", self._on_tree_click)
 
     # ---------- 事件 ----------
     @staticmethod
@@ -316,13 +331,13 @@ class AppFrame(tk.Tk):
             self.on_combo_toggle(self._combo_var.get())
 
     def _on_sender_selected(self, label: str) -> None:
-        # 先保存切换前档案的编辑内容，再切换并回填
-        self._save_current_sender_profile()
+        # 先保存切换前标签的寄件人/收件人文本框内容，再切换并回填
+        self._save_current_sender_texts()
         self._sender_sel.set(label)
         self._config["selected_sender"] = label
         for l, btn in self._sender_buttons.items():
             btn.configure(style="TabActive.TButton" if l == label else "Tab.TButton")
-        self._load_sender_profile(label)
+        self._load_sender_texts(label)
 
     def _on_cell_edit(self, event) -> None:
         """双击单元格进入编辑（用 Entry 覆盖）。"""
@@ -332,6 +347,10 @@ class AppFrame(tk.Tk):
         item = self._tree.identify_row(event.y)
         col = self._tree.identify_column(event.x)
         if not item or not col:
+            return
+        # 选择列不可编辑
+        header = self._tree.heading(str(col or ""), "text")
+        if header in (CHECK_ON, CHECK_OFF):
             return
         x, y, w, h = self._tree.bbox(item, col)
         value = self._tree.set(item, col)
@@ -354,9 +373,9 @@ class AppFrame(tk.Tk):
         """当前模板列表表头。"""
         return tuple(self._list_headers)
 
-    def build_row(self, fields, serial=None):
+    def build_row(self, fields, serial=None, selected=False):
         """按当前模板列表表头构建显示行。"""
-        values = []
+        values = [CHECK_ON if selected else CHECK_OFF]
         for i, header in enumerate(self._list_headers):
             if header == "序号":
                 values.append(str(serial if serial is not None else i + 1))
@@ -392,13 +411,9 @@ class AppFrame(tk.Tk):
         """返回当前模板 key。"""
         return self._template_key
 
-    def get_sender_vars(self) -> dict:
-        """返回寄件人表单变量（供 App 读取/回填）。"""
-        return self._sender_vars
-
     def flush_sender_profile(self) -> None:
-        """关闭前把当前寄件人卡片编辑内容落盘到 sender_profiles。"""
-        self._save_current_sender_profile()
+        """关闭前把当前寄件人/收件人文本框内容落盘到 sender_profiles。"""
+        self._save_current_sender_texts()
 
     # ---------- 寄件人档案 ----------
     def _find_sender_profile(self, label: str) -> dict:
@@ -407,27 +422,6 @@ class AppFrame(tk.Tk):
             if (p.get("label") or "") == label:
                 return p
         return {}
-
-    def _load_sender_profile(self, label: str) -> None:
-        """把指定寄件人档案内容回填到寄件人卡片输入框。"""
-        profile = self._find_sender_profile(label)
-        for header, key in SENDER_FIELD_MAP.items():
-            var = self._sender_vars.get(header)
-            if var is not None:
-                var.set(str(profile.get(key) or "").strip())
-
-    def _save_current_sender_profile(self) -> None:
-        """把当前寄件人卡片输入框内容写回 sender_profiles 对应档案。"""
-        label = (self._sender_sel.get() or "").strip() or "寄件人1"
-        profiles = self._config.setdefault("sender_profiles", [])
-        profile = self._find_sender_profile(label)
-        if not profile:
-            profile = {"label": label}
-            profiles.append(profile)
-        for header, key in SENDER_FIELD_MAP.items():
-            var = self._sender_vars.get(header)
-            if var is not None:
-                profile[key] = var.get().strip()
 
     # ---------- 逻辑辅助 ----------
     @staticmethod
@@ -465,14 +459,18 @@ class AppFrame(tk.Tk):
         self._template_key = key
         self._list_headers = list(self._resolve_list_headers())
         self._tree.delete(*self._tree.get_children())
-        self._tree["columns"] = self._list_headers
+        all_cols = [SELECT_COL] + self._list_headers
+        self._tree["columns"] = all_cols
         for col in self._list_headers:
             self._tree.heading(col, text=col)
             self._tree.column(
                 col, width=WIDE_COLUMN_WIDTHS.get(col, 120),
                 anchor=tk.W, stretch=False,
             )
-        self._tree.column("序号", width=60, anchor=tk.CENTER, stretch=False)
+        self._tree.heading(SELECT_COL, text=CHECK_OFF)
+        self._tree.column(SELECT_COL, width=44, anchor=tk.CENTER, stretch=False)
+        if "序号" in self._list_headers:
+            self._tree.column("序号", width=60, anchor=tk.CENTER, stretch=False)
 
     def _update_row_field(self, item, col, value) -> None:
         """单元格编辑后同步到 App 数据。"""
@@ -595,3 +593,110 @@ class AppFrame(tk.Tk):
             "label_to_key": label_to_key,
             "disabled_labels": disabled_labels,
         }
+
+    # ---------- 寄件人/收件人文本框 ----------
+    def get_sender_text(self) -> str:
+        """读取寄件人文本框内容。"""
+        return self._sender_text.get("1.0", tk.END).strip()
+
+    def set_sender_text(self, text: str) -> None:
+        """覆盖写寄件人文本框（内容折叠为单行）。"""
+        self._sender_text.delete("1.0", tk.END)
+        self._sender_text.insert("1.0", self._single_line(text))
+
+    def set_receiver_text(self, text: str) -> None:
+        """回填收件人文本框内容（用于切换寄件人标签回显）。"""
+        self._receiver_text.delete("1.0", tk.END)
+        self._receiver_text.insert("1.0", str(text or ""))
+
+    def get_focus_target(self) -> str:
+        """返回用户最后进入的目标框：'sender' / 'receiver' / ''。"""
+        return getattr(self, "_focus_target", "")
+
+    def _mark_focus_target(self, target: str) -> None:
+        """记录当前进入的文本框，用于剪贴板内容路由。"""
+        self._focus_target = target
+
+    @staticmethod
+    def _single_line(text: str) -> str:
+        """把多行/连续空白折叠为单个空格。"""
+        return re.sub(r"\s+", " ", str(text or "")).strip()
+
+    @staticmethod
+    def _on_sender_key_return(event=None):
+        """寄件人文本框禁止回车换行（仅显示一行数据）。"""
+        return "break"
+
+    def _on_sender_paste(self, event=None):
+        """粘贴时折叠为单行并覆盖写入，避免多行内容破坏单行约束。"""
+        try:
+            text = self.clipboard_get()
+        except tk.TclError:
+            return "break"
+        self.set_sender_text(text)
+        return "break"
+
+    def _load_sender_texts(self, label: str) -> None:
+        """把指定寄件人档案的文本回填到寄件人/收件人文本框。"""
+        profile = self._find_sender_profile(label)
+        self.set_sender_text(str(profile.get("sender_text") or ""))
+        self.set_receiver_text(str(profile.get("receiver_text") or ""))
+
+    def _save_current_sender_texts(self) -> None:
+        """把当前寄件人/收件人文本框内容写回 sender_profiles 对应档案。"""
+        label = (self._sender_sel.get() or "").strip() or "寄件人1"
+        profiles = self._config.setdefault("sender_profiles", [])
+        profile = self._find_sender_profile(label)
+        if not profile:
+            profile = {"label": label}
+            profiles.append(profile)
+        profile["sender_text"] = self.get_sender_text()
+        profile["receiver_text"] = self.get_receiver_text()
+
+    # ---------- 列表多选 ----------
+    def set_row_checked(self, item, checked: bool) -> None:
+        """设置单行勾选状态并刷新表头全选。"""
+        self._tree.set(item, SELECT_COL, CHECK_ON if checked else CHECK_OFF)
+        self.update_select_header()
+
+    def update_select_header(self) -> None:
+        """根据当前行的勾选状态刷新表头全选框（全部勾选显示 ☑）。"""
+        items = self._tree.get_children()
+        checked = sum(1 for it in items if self._tree.set(it, SELECT_COL) == CHECK_ON)
+        all_checked = bool(items) and checked == len(items)
+        self._tree.heading(SELECT_COL, text=CHECK_ON if all_checked else CHECK_OFF)
+
+    def _toggle_row(self, item) -> None:
+        """切换单行勾选并通知 App 同步选中状态。"""
+        checked = self._tree.set(item, SELECT_COL) != CHECK_ON
+        self.set_row_checked(item, checked)
+        if callable(self.on_row_checked):
+            self.on_row_checked(item, checked)
+
+    def _toggle_select_all(self) -> None:
+        """切换全选/全不选，并通知 App 同步选中状态。"""
+        items = self._tree.get_children()
+        all_checked = bool(items) and all(
+            self._tree.set(it, SELECT_COL) == CHECK_ON for it in items
+        )
+        new_checked = not all_checked
+        for it in items:
+            self._tree.set(it, SELECT_COL, CHECK_ON if new_checked else CHECK_OFF)
+        self.update_select_header()
+        if callable(self.on_select_all):
+            self.on_select_all(new_checked)
+
+    def _on_tree_click(self, event):
+        """处理选择列单击与表头全选点击。"""
+        region = self._tree.identify("region", event.x, event.y)
+        col = self._tree.identify_column(event.x)
+        header = self._tree.heading(str(col or ""), "text")
+        if region == "heading" and header in (CHECK_ON, CHECK_OFF):
+            self._toggle_select_all()
+            return "break"
+        if region == "cell" and header in (CHECK_ON, CHECK_OFF):
+            item = self._tree.identify_row(event.y)
+            if item:
+                self._toggle_row(item)
+            return "break"
+        return None

@@ -39,6 +39,21 @@ class SenderManagerTest(unittest.TestCase):
         mgr = SenderManager(make_config())
         self.assertEqual(mgr.get_temperature_layer(), "冷藏(0-4℃)")
 
+    def test_temperature_uses_default_sender_only(self):
+        cfg = make_config()
+        # 选中寄件人档案里的温度值应为历史残留，不再参与列表注入
+        cfg["sender_profiles"][0]["temperature_layer"] = "冷冻(≤-18℃)"
+        cfg["default_sender"]["temperature_layer"] = "控温(10-25℃)"
+        mgr = SenderManager(cfg)
+        self.assertEqual(mgr.get_temperature_layer(), "控温(10-25℃)")
+
+    def test_temperature_empty_when_default_empty(self):
+        cfg = make_config()
+        cfg["sender_profiles"][0]["temperature_layer"] = "冷藏(0-4℃)"
+        cfg["default_sender"]["temperature_layer"] = ""
+        mgr = SenderManager(cfg)
+        self.assertEqual(mgr.get_temperature_layer(), "")
+
     def test_payment(self):
         mgr = SenderManager(make_config())
         self.assertEqual(mgr.get_payment_method("JD_MONTHLY"), "寄付月结")

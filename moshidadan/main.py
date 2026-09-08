@@ -23,7 +23,7 @@ from template_manager import (
     get_list_headers, get_export_categories,
     flatten_export_fields, empty_fields_dict,
 )
-from recognition import normalize_text, recognize_batch
+from recognition import normalize_text, recognize_batch, recognize_line
 from flow_product import resolve_product
 from sender_manager import SenderManager
 from parser import configure_surnames
@@ -54,8 +54,8 @@ class App:
         self._save_dir = str(config.get("save_dir", "") or "").strip()
         self._list_headers = list(get_list_headers(self._template_key, app_config))
         self._row_data = []
-        self._auto_recognize = bool(config.get("auto_recognize", True))
-        self._combo_copy = bool(config.get("combo_copy", False))
+        self._auto_recognize = bool(config.get("auto_recognize", False))
+        self._combo_copy = bool(config.get("combo_copy", True))
         self._sender_mgr = SenderManager(config)
 
         self._frame = AppFrame(config, app_config)
@@ -71,6 +71,9 @@ class App:
         self._frame.on_save_dir_clicked = self._on_save_dir_clicked
         self._frame.on_help_clicked = self._on_help_clicked
         self._frame.on_cell_edited = self._on_cell_edited
+        self._frame.on_row_checked = self._on_row_checked
+        self._frame.on_select_all = self._on_select_all
+        self._frame.on_delete_selected = self._delete_selected_rows
 
         # 剪贴板与连击
         self._clipboard_worker = ClipboardWorker()
@@ -96,11 +99,13 @@ class App:
 
     # ---------- 字段合并 ----------
 
-    def _merge_fields(self, fields):
+    def _merge_fields(self, fields, sender_fields=None):
         """合并识别字段 + 寄件人 + 温层 + 付款方式 + 流向产品。"""
         merged = dict(empty_fields_dict())
         merged.update(fields)
-        merged.update(self._sender_mgr.get_selected_sender_fields())
+        if sender_fields is None:
+            sender_fields = self._sender_mgr.get_selected_sender_fields()
+        merged.update(sender_fields)
         merged["temperature_layer"] = (
             merged.get("temperature_layer") or self._sender_mgr.get_temperature_layer()
         )
@@ -126,11 +131,12 @@ class App:
 
     def _append_row(self, fields):
         """向列表添加一行：构建显示行并插入 Treeview。"""
-        row = {"fields": fields, "raw": ""}
+        row = {"fields": fields, "raw": "", "selected": False}
         self._row_data.append(row)
         serial = len(self._row_data)
-        values = self._frame.build_row(fields, serial=serial)
+        values = self._frame.build_row(fields, serial=serial, selected=False)
         self._frame.insert_row(values)
+        self._frame.update_select_header()
         self._frame.set_status(f"已识别 {len(self._row_data)} 条")
         return row
 
@@ -138,8 +144,11 @@ class App:
         """按当前 _row_data 重建列表。"""
         self._frame.clear_rows()
         for i, row in enumerate(self._row_data, 1):
-            values = self._frame.build_row(row["fields"], serial=i)
+            values = self._frame.build_row(
+                row["fields"], serial=i, selected=bool(row.get("selected"))
+            )
             self._frame.insert_row(values)
+        self._frame.update_select_header()
 
     def _on_cell_edited(self, item, col, value):
         """单元格编辑后同步到 _row_data。
@@ -176,9 +185,16 @@ class App:
             self._frame.after(400, self._poll_clipboard)
 
     def handle_clipboard_text(self, text):
-        """剪贴板新文本：自动识别开则单条入列表，关则追加到收件框。"""
+        """剪贴板新文本：按焦点路由到寄件人/收件人框，否则维持现状入列表。"""
         normalized = normalize_text(text)
         if not normalized:
+            return
+        target = self._frame.get_focus_target()
+        if target == "sender":
+            self._frame.set_sender_text(normalized)
+            return
+        if target == "receiver":
+            self._frame.append_receiver(normalized)
             return
         if self._auto_recognize:
             lines = recognize_batch(normalized)
@@ -309,12 +325,14 @@ class App:
 
     def _on_recognize(self):
         """文本识别按钮：按行批量识别收件框内容。"""
+        sender_text = self._frame.get_sender_text()
+        sender_fields = self._resolve_sender_fields(sender_text)
         text = self._frame.get_receiver_text()
         if not text:
             self._frame.set_status("收件人文本为空")
             return
         for fields in recognize_batch(text):
-            self._append_row(self._merge_fields(fields))
+            self._append_row(self._merge_fields(fields, sender_fields))
         # 识别完成后清空收件框，防止同一批文本被再次识别导致重复
         self._frame.clear_receiver_text()
         self._frame.set_status(f"已识别 {len(self._row_data)} 条")
@@ -362,6 +380,7 @@ class App:
         if frame is not None:
             try:
                 frame.clear_rows()
+                frame.update_select_header()
             except Exception:
                 pass
         clear_collected_by_template(self._template_key)
@@ -507,6 +526,72 @@ class App:
             if not (phone or landline):
                 return f"第 {idx} 条：收件人手机、座机至少填一项"
         return ""
+
+    def _resolve_sender_fields(self, sender_text: str) -> dict:
+        """解析寄件人文本框为结构化字段；为空则回退默认寄件人信息。
+
+        返回的字段会注入到「文本识别」生成的每一行列表数据中。
+        """
+        stripped = (sender_text or "").strip()
+        if stripped:
+            fields = self._parse_sender_fields(stripped)
+            # 写回当前选中的寄件人档案，供后续导出复用
+            self._sender_mgr.update_selected_sender_fields(fields)
+            return fields
+        return self._default_sender_fields()
+
+    def _parse_sender_fields(self, text: str) -> dict:
+        """使用现有解析器解析寄件人文本，映射为寄件人结构化字段。"""
+        parsed = recognize_line(text)
+        return {
+            "sender_name": (parsed.get("name") or "").strip(),
+            "sender_phone": (parsed.get("phone") or "").strip(),
+            "sender_landline": (parsed.get("landline") or "").strip(),
+            "sender_address": (parsed.get("full_address") or "").strip(),
+            "sender_company": "",
+            "sender_warehouse_code": "",
+        }
+
+    def _default_sender_fields(self) -> dict:
+        """从寄件人信息配置读取默认寄件人字段。"""
+        default = self._config.get("default_sender") or {}
+        return {
+            "sender_name": str(default.get("sender_name") or "").strip(),
+            "sender_phone": str(default.get("sender_phone") or "").strip(),
+            "sender_landline": str(default.get("sender_landline") or "").strip(),
+            "sender_address": str(default.get("sender_address") or "").strip(),
+            "sender_company": "",
+            "sender_warehouse_code": "",
+            "temperature_layer": str(default.get("temperature_layer") or "").strip(),
+            "payment_method": str(default.get("payment_method") or "").strip(),
+        }
+
+    def _on_row_checked(self, item, checked: bool) -> None:
+        """单行勾选切换后同步到 _row_data。"""
+        try:
+            row_index = self._frame._tree.index(item)
+        except Exception:
+            return
+        if 0 <= row_index < len(self._row_data):
+            self._row_data[row_index]["selected"] = bool(checked)
+
+    def _on_select_all(self, checked: bool) -> None:
+        """全选/全不选后同步到 _row_data。"""
+        for row in self._row_data:
+            row["selected"] = bool(checked)
+
+    def _delete_selected_rows(self) -> None:
+        """删除勾选的行并持久化当前模板数据。"""
+        selected = [row for row in self._row_data if row.get("selected")]
+        if not selected:
+            messagebox.showinfo("提示", "请先勾选要删除的数据")
+            return
+        if not messagebox.askyesno("确认删除", f"确定删除选中的 {len(selected)} 条数据？"):
+            return
+        self._row_data = [row for row in self._row_data if not row.get("selected")]
+        self._rebuild_list()
+        self._frame.set_status(f"已删除 {len(selected)} 条")
+        save_collected_by_template(self._template_key, self._row_data)
 
 
 def main() -> None:
