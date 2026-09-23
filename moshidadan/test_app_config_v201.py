@@ -18,7 +18,7 @@ class AppConfigV201Test(unittest.TestCase):
 
     def test_meta(self):
         self.assertEqual(self.cfg["app_name"], "产地快打")
-        self.assertEqual(self.cfg["version"], "v2.0.1")
+        self.assertEqual(self.cfg["version"], "v2.0.4")
         self.assertEqual(self.cfg["sender_defaults"]["temperature_layer"], "冷藏(0-4℃)")
 
     def test_templates_options(self):

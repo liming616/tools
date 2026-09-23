@@ -85,7 +85,41 @@ class MainV201Test(unittest.TestCase):
             fd.asksaveasfilename.return_value = "out.xlsx"
             app._export_excel()
         write.assert_called_once()
+        self.assertTrue(write.call_args.kwargs["single_row_header"])
         self.assertEqual(app._row_data, [])
+
+    def test_export_excel_uses_double_header_for_official(self):
+        app = main_mod.App.__new__(main_mod.App)
+        app._row_data = [{
+            "fields": {
+                "name": "张三",
+                "full_address": "北京市朝阳区xx路",
+                "phone": "13900139000",
+            }
+        }]
+        app._template_key = "JD_OFFICIAL"
+        app._app_config = {
+            "template_configs": {
+                "JD_OFFICIAL": {
+                    "export_categories": [
+                        {
+                            "name": "收件人",
+                            "color": "FFF2CC",
+                            "fields": ["收件人姓名"],
+                        }
+                    ],
+                    "dropdown_options": None,
+                }
+            }
+        }
+        app._save_dir = ""
+        with mock.patch.object(main_mod, "filedialog") as fd, \
+                mock.patch.object(main_mod, "write_export_excel") as write, \
+                mock.patch.object(main_mod, "messagebox"):
+            fd.asksaveasfilename.return_value = "out.xlsx"
+            app._export_excel()
+        write.assert_called_once()
+        self.assertFalse(write.call_args.kwargs["single_row_header"])
 
     def _base_app(self):
         """构造最小 App 实例（不含导出所需额外字段）。"""

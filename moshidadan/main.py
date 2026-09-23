@@ -374,7 +374,13 @@ class App:
              .get(self._template_key, {}) or {})
             .get("dropdown_options")
         )
-        write_export_excel(path, categories, rows, dropdown)
+        write_export_excel(
+            path,
+            categories,
+            rows,
+            dropdown,
+            single_row_header=(self._template_key == "JD_MONTHLY"),
+        )
         self._row_data = []
         frame = getattr(self, "_frame", None)
         if frame is not None:

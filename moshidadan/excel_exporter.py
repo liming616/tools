@@ -78,16 +78,21 @@ def _cat_color(cat, idx) -> str:
 
 
 def write_export_excel(file_path: str, categories: list, rows: list,
-                       dropdown_options: dict = None) -> None:
-    """生成双行表头 Excel 文件。
+                       dropdown_options: dict = None,
+                       single_row_header: bool = False) -> None:
+    """生成单行或双行表头 Excel 文件。
 
     Args:
         file_path: 保存路径（.xlsx）
-        categories: [(分类名, [字段名...], 颜色), ...]，仅包含用户勾选的字段
+        categories: 分类结构，元素支持 dict 和 tuple
         rows: 数据行，每行顺序与 categories 展平后的字段顺序一致
         dropdown_options: {表头: [选项...], ...}，为匹配的表头列生成下拉框
+        single_row_header: True 时字段标题写入第 1 行，数据从第 2 行开始；
+            False 时第 1 行为分类标题，第 2 行为字段标题，数据从第 3 行开始
     """
     headers = flatten_categories(categories)
+    header_row = 1 if single_row_header else 2
+    data_start_row = header_row + 1
 
     import openpyxl
     wb = openpyxl.Workbook()
@@ -113,7 +118,7 @@ def write_export_excel(file_path: str, categories: list, rows: list,
         )
         start_col = col
         for field in fields:
-            cell = ws.cell(row=2, column=col, value=field)
+            cell = ws.cell(row=header_row, column=col, value=field)
             cell.font = header_font
             cell.fill = header_fill
             cell.alignment = header_alignment
@@ -121,20 +126,24 @@ def write_export_excel(file_path: str, categories: list, rows: list,
             col += 1
         end_col = col - 1
 
-        for c in range(start_col, end_col + 1):
-            cat_cell = ws.cell(
-                row=1, column=c,
-                value=(category_name if c == start_col else None),
-            )
-            cat_cell.font = header_font
-            cat_cell.fill = header_fill
-            cat_cell.alignment = header_alignment
-            cat_cell.border = header_border
-        if end_col > start_col:
-            ws.merge_cells(
-                start_row=1, start_column=start_col,
-                end_row=1, end_column=end_col,
-            )
+        if not single_row_header:
+            for c in range(start_col, end_col + 1):
+                cat_cell = ws.cell(
+                    row=1,
+                    column=c,
+                    value=(category_name if c == start_col else None),
+                )
+                cat_cell.font = header_font
+                cat_cell.fill = header_fill
+                cat_cell.alignment = header_alignment
+                cat_cell.border = header_border
+            if end_col > start_col:
+                ws.merge_cells(
+                    start_row=1,
+                    start_column=start_col,
+                    end_row=1,
+                    end_column=end_col,
+                )
 
     # 下拉选项：写入隐藏 sheet，并按表头列挂载数据验证
     if dropdown_options:
@@ -173,11 +182,12 @@ def write_export_excel(file_path: str, categories: list, rows: list,
                 ws.add_data_validation(dv)
                 target_letter = get_column_letter(target_col)
                 dv.add(
-                    f"{target_letter}3:"
-                    f"{target_letter}{2 + DROPDOWN_VALIDATION_ROWS}"
+                    f"{target_letter}{data_start_row}:"
+                    f"{target_letter}"
+                    f"{data_start_row + DROPDOWN_VALIDATION_ROWS - 1}"
                 )
 
-    for row_idx, row_data in enumerate(rows, 3):
+    for row_idx, row_data in enumerate(rows, data_start_row):
         for col_idx, value in enumerate(row_data, 1):
             ws.cell(row=row_idx, column=col_idx, value=str(value))
 
@@ -185,5 +195,5 @@ def write_export_excel(file_path: str, categories: list, rows: list,
         width = max(14, min(36, len(str(header)) * 2 + 8))
         ws.column_dimensions[get_column_letter(col_idx)].width = width
 
-    ws.freeze_panes = "A3"
+    ws.freeze_panes = f"A{data_start_row}"
     wb.save(file_path)
