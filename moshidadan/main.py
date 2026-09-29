@@ -185,9 +185,19 @@ class App:
             self._frame.after(400, self._poll_clipboard)
 
     def handle_clipboard_text(self, text):
-        """剪贴板新文本：按焦点路由到寄件人/收件人框，否则维持现状入列表。"""
+        """剪贴板新文本：自动识别开启时优先识别入列表，否则按焦点路由。"""
         normalized = normalize_text(text)
         if not normalized:
+            return
+        if self._auto_recognize:
+            sender_text = self._frame.get_sender_text()
+            if not (sender_text or "").strip() and not self._sender_config_ready():
+                messagebox.showwarning("提示", "请配置寄件信息")
+                return
+            lines = recognize_batch(normalized)
+            fields = lines[0] if lines else {}
+            if fields:
+                self._append_row(self._merge_fields(fields))
             return
         target = self._frame.get_focus_target()
         if target == "sender":
@@ -196,13 +206,7 @@ class App:
         if target == "receiver":
             self._frame.append_receiver(normalized)
             return
-        if self._auto_recognize:
-            lines = recognize_batch(normalized)
-            fields = lines[0] if lines else {}
-            if fields:
-                self._append_row(self._merge_fields(fields))
-        else:
-            self._frame.append_receiver(normalized)
+        self._frame.append_receiver(normalized)
 
     # ---------- 连击复制 ----------
 
@@ -325,11 +329,14 @@ class App:
 
     def _on_recognize(self):
         """文本识别按钮：按行批量识别收件框内容。"""
-        sender_text = self._frame.get_sender_text()
-        sender_fields = self._resolve_sender_fields(sender_text)
         text = self._frame.get_receiver_text()
         if not text:
             self._frame.set_status("收件人文本为空")
+            return
+        sender_text = self._frame.get_sender_text()
+        sender_fields = self._resolve_text_recognition_sender_fields(sender_text)
+        if sender_fields is None:
+            messagebox.showwarning("提示", "请配置寄件信息")
             return
         for fields in recognize_batch(text):
             self._append_row(self._merge_fields(fields, sender_fields))
@@ -598,6 +605,32 @@ class App:
         self._rebuild_list()
         self._frame.set_status(f"已删除 {len(selected)} 条")
         save_collected_by_template(self._template_key, self._row_data)
+
+    def _sender_config_ready(self) -> bool:
+        """按寄件信息配置规则检查默认寄件人是否已完整配置。"""
+        default = self._config.get("default_sender") or {}
+        sender_name = str(default.get("sender_name") or "").strip()
+        sender_address = str(default.get("sender_address") or "").strip()
+        items_text = str(default.get("items_text") or "").strip()
+        sender_phone = str(default.get("sender_phone") or "").strip()
+        sender_landline = str(default.get("sender_landline") or "").strip()
+        return bool(
+            sender_name
+            and sender_address
+            and items_text
+            and (sender_phone or sender_landline)
+        )
+
+    def _resolve_text_recognition_sender_fields(self, sender_text: str):
+        """解析文本识别使用的寄件字段；默认配置无效时返回 None。"""
+        if self._template_key != "JD_MONTHLY":
+            return self._resolve_sender_fields(sender_text)
+        selected_sender = str(self._config.get("selected_sender") or "").strip()
+        if selected_sender and str(sender_text or "").strip():
+            return self._resolve_sender_fields(sender_text)
+        if not self._sender_config_ready():
+            return None
+        return self._default_sender_fields()
 
 
 def main() -> None:

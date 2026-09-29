@@ -82,5 +82,69 @@ class AppFrameLogicTest(unittest.TestCase):
             "收货人", width=120, anchor=tk.W, stretch=False)
 
 
+    def test_sender_focus_selects_group1_when_none_selected(self):
+        """回归：无有效寄件人组时，聚焦寄件文本框应默认绑定寄件人1。"""
+        frame = AppFrame.__new__(AppFrame)
+        frame._config = {}
+        frame._sender_sel = mock.Mock()
+        frame._sender_sel.get.return_value = ""
+        frame._sender_buttons = {
+            "寄件人1": mock.Mock(),
+            "寄件人2": mock.Mock(),
+            "寄件人3": mock.Mock(),
+        }
+        frame._load_sender_texts = mock.Mock()
+        frame._mark_focus_target = mock.Mock()
+
+        frame._on_sender_focus()
+
+        frame._mark_focus_target.assert_called_once_with("sender")
+        frame._sender_sel.set.assert_called_once_with("寄件人1")
+        self.assertEqual(frame._config["selected_sender"], "寄件人1")
+        frame._sender_buttons["寄件人1"].configure.assert_called_once_with(
+            style="TabActive.TButton"
+        )
+        frame._load_sender_texts.assert_called_once_with("寄件人1")
+
+    def test_sender_focus_keeps_existing_valid_group(self):
+        """回归：已有有效寄件人组时，聚焦寄件文本框不得切换或重载。"""
+        frame = AppFrame.__new__(AppFrame)
+        frame._config = {"selected_sender": "寄件人2"}
+        frame._sender_sel = mock.Mock()
+        frame._sender_sel.get.return_value = "寄件人2"
+        frame._sender_buttons = {
+            "寄件人1": mock.Mock(),
+            "寄件人2": mock.Mock(),
+            "寄件人3": mock.Mock(),
+        }
+        frame._load_sender_texts = mock.Mock()
+        frame._mark_focus_target = mock.Mock()
+
+        frame._on_sender_focus()
+
+        frame._mark_focus_target.assert_called_once_with("sender")
+        frame._sender_sel.set.assert_not_called()
+        frame._load_sender_texts.assert_not_called()
+
+    def test_sender_selection_saves_current_group_before_switching(self):
+        """回归：手动切换寄件人组时，仍先保存旧组再加载新组。"""
+        frame = AppFrame.__new__(AppFrame)
+        frame._config = {"selected_sender": "寄件人1"}
+        frame._sender_sel = mock.Mock()
+        frame._sender_buttons = {
+            "寄件人1": mock.Mock(),
+            "寄件人2": mock.Mock(),
+            "寄件人3": mock.Mock(),
+        }
+        frame._save_current_sender_texts = mock.Mock()
+        frame._load_sender_texts = mock.Mock()
+
+        frame._on_sender_selected("寄件人2")
+
+        frame._save_current_sender_texts.assert_called_once()
+        frame._sender_sel.set.assert_called_once_with("寄件人2")
+        frame._load_sender_texts.assert_called_once_with("寄件人2")
+
+
 if __name__ == "__main__":
     unittest.main()

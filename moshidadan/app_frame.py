@@ -254,7 +254,7 @@ class AppFrame(tk.Tk):
         self._sender_text.bind("<Return>", self._on_sender_key_return)
         self._sender_text.bind("<<Paste>>", self._on_sender_paste)
         # 记录用户最后进入的文本框，供剪贴板内容焦点路由
-        self._sender_text.bind("<FocusIn>", lambda e: self._mark_focus_target("sender"))
+        self._sender_text.bind("<FocusIn>", self._on_sender_focus)
         self._sender_text.bind("<Button-1>", lambda e: self._mark_focus_target("sender"))
 
     def _build_receiver_card(self, parent: ttk.Frame) -> None:
@@ -331,13 +331,9 @@ class AppFrame(tk.Tk):
             self.on_combo_toggle(self._combo_var.get())
 
     def _on_sender_selected(self, label: str) -> None:
-        # 先保存切换前标签的寄件人/收件人文本框内容，再切换并回填
+        """手动切换寄件人组：先保存旧组，再激活并加载新组。"""
         self._save_current_sender_texts()
-        self._sender_sel.set(label)
-        self._config["selected_sender"] = label
-        for l, btn in self._sender_buttons.items():
-            btn.configure(style="TabActive.TButton" if l == label else "Tab.TButton")
-        self._load_sender_texts(label)
+        self._activate_sender_group(label)
 
     def _on_cell_edit(self, event) -> None:
         """双击单元格进入编辑（用 Entry 覆盖）。"""
@@ -700,3 +696,19 @@ class AppFrame(tk.Tk):
                 self._toggle_row(item)
             return "break"
         return None
+
+    def _on_sender_focus(self, event=None):
+        """焦点进入寄件文本框时，确保存在有效的寄件人组。"""
+        self._mark_focus_target("sender")
+        current = str(self._sender_sel.get() or "").strip()
+        if current not in self._sender_buttons:
+            self._activate_sender_group("寄件人1")
+
+    def _activate_sender_group(self, label: str) -> None:
+        """激活寄件人组并同步配置、按钮样式和文本框内容。"""
+        self._sender_sel.set(label)
+        self._config["selected_sender"] = label
+        for group_label, button in self._sender_buttons.items():
+            style = "TabActive.TButton" if group_label == label else "Tab.TButton"
+            button.configure(style=style)
+        self._load_sender_texts(label)

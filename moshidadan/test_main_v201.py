@@ -302,5 +302,222 @@ class MainV201Test(unittest.TestCase):
         self.assertEqual(len(app._row_data), 1)
 
 
+    def test_auto_recognize_takes_priority_over_receiver_focus(self):
+        """回归：自动识别开启时，收件框焦点不应拦截剪辑板文本。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._auto_recognize = True
+        app._config = {}
+        app._frame = mock.Mock()
+        app._frame.get_sender_text.return_value = "张三 13800138000 北京 水果"
+        app._frame.get_focus_target.return_value = "receiver"
+        app._merge_fields = mock.Mock(return_value={"name": "李四"})
+        app._append_row = mock.Mock()
+
+        with mock.patch.object(
+            main_mod, "recognize_batch", return_value=[{"name": "李四"}]
+        ):
+            app.handle_clipboard_text("李四 13900139000 上海 文件")
+
+        app._frame.append_receiver.assert_not_called()
+        app._append_row.assert_called_once_with({"name": "李四"})
+
+    def test_auto_recognize_takes_priority_over_sender_focus(self):
+        """回归：自动识别开启时，寄件框焦点也不应拦截剪辑板文本。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._auto_recognize = True
+        app._config = {}
+        app._frame = mock.Mock()
+        app._frame.get_sender_text.return_value = "张三 13800138000 北京 水果"
+        app._frame.get_focus_target.return_value = "sender"
+        app._merge_fields = mock.Mock(return_value={"name": "李四"})
+        app._append_row = mock.Mock()
+
+        with mock.patch.object(
+            main_mod, "recognize_batch", return_value=[{"name": "李四"}]
+        ):
+            app.handle_clipboard_text("李四 13900139000 上海 文件")
+
+        app._frame.set_sender_text.assert_not_called()
+        app._append_row.assert_called_once_with({"name": "李四"})
+
+    def test_auto_recognize_blocks_when_sender_config_incomplete(self):
+        """回归：寄件框为空且寄件信息配置不完整时，阻断识别并提示配置。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._auto_recognize = True
+        app._config = {
+            "default_sender": {
+                "sender_name": "张三",
+                "sender_address": "",
+                "items_text": "",
+                "sender_phone": "",
+                "sender_landline": "",
+            }
+        }
+        app._frame = mock.Mock()
+        app._frame.get_sender_text.return_value = ""
+        app._frame.get_focus_target.return_value = "receiver"
+        app._append_row = mock.Mock()
+
+        with mock.patch.object(main_mod, "messagebox") as msg:
+            app.handle_clipboard_text("李四 13900139000 上海 文件")
+
+        msg.showwarning.assert_called_once_with("提示", "请配置寄件信息")
+        app._frame.append_receiver.assert_not_called()
+        app._append_row.assert_not_called()
+
+    def test_auto_recognize_continues_when_sender_config_complete(self):
+        """回归：寄件框为空但寄件信息配置完整时，仍自动识别入列表。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._auto_recognize = True
+        app._config = {
+            "default_sender": {
+                "sender_name": "张三",
+                "sender_address": "北京",
+                "items_text": "水果",
+                "sender_phone": "13800138000",
+                "sender_landline": "",
+            }
+        }
+        app._frame = mock.Mock()
+        app._frame.get_sender_text.return_value = ""
+        app._frame.get_focus_target.return_value = "receiver"
+        app._merge_fields = mock.Mock(return_value={"name": "李四"})
+        app._append_row = mock.Mock()
+
+        with mock.patch.object(
+            main_mod, "recognize_batch", return_value=[{"name": "李四"}]
+        ), mock.patch.object(main_mod, "messagebox") as msg:
+            app.handle_clipboard_text("李四 13900139000 上海 文件")
+
+        msg.showwarning.assert_not_called()
+        app._frame.append_receiver.assert_not_called()
+        app._append_row.assert_called_once_with({"name": "李四"})
+
+
+    def _make_recognize_app(self, template_key="JD_MONTHLY"):
+        """构造文本识别测试所需的 App 最小实例。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._template_key = template_key
+        app._row_data = []
+        app._config = {
+            "selected_sender": "寄件人1",
+            "default_sender": {
+                "sender_name": "默认寄件人",
+                "sender_phone": "13800138000",
+                "sender_landline": "",
+                "sender_address": "北京市朝阳区",
+                "items_text": "水果",
+            },
+        }
+        app._frame = mock.Mock()
+        app._frame.get_receiver_text.return_value = "李四 13900139000 上海市浦东新区"
+        app._frame.get_sender_text.return_value = ""
+        app._append_row = mock.Mock()
+        app._merge_fields = mock.Mock(return_value={"name": "李四"})
+        return app
+
+    def test_jd_monthly_text_recognize_prefers_sender_text(self):
+        """京东月结：已选组且文本框有内容时，文本框解析结果优先。"""
+        app = self._make_recognize_app()
+        app._frame.get_sender_text.return_value = "王五 13700137000 北京市 文件"
+        app._resolve_sender_fields = mock.Mock(
+            return_value={"sender_name": "王五"}
+        )
+        app._default_sender_fields = mock.Mock()
+
+        with mock.patch.object(
+            main_mod, "recognize_batch", return_value=[{"name": "李四"}]
+        ):
+            app._on_recognize()
+
+        app._resolve_sender_fields.assert_called_once_with(
+            "王五 13700137000 北京市 文件"
+        )
+        app._default_sender_fields.assert_not_called()
+        app._append_row.assert_called_once_with({"name": "李四"})
+        app._frame.clear_receiver_text.assert_called_once()
+
+    def test_jd_monthly_text_recognize_falls_back_default_when_sender_text_empty(self):
+        """京东月结：已选组但文本框为空时，使用默认寄件配置。"""
+        app = self._make_recognize_app()
+        default_fields = {"sender_name": "默认寄件人"}
+        app._resolve_sender_fields = mock.Mock()
+        app._default_sender_fields = mock.Mock(return_value=default_fields)
+        app._merge_fields.return_value = {"name": "李四", "sender_name": "默认寄件人"}
+
+        with mock.patch.object(
+            main_mod, "recognize_batch", return_value=[{"name": "李四"}]
+        ):
+            app._on_recognize()
+
+        app._resolve_sender_fields.assert_not_called()
+        app._default_sender_fields.assert_called_once()
+        app._append_row.assert_called_once_with(
+            {"name": "李四", "sender_name": "默认寄件人"}
+        )
+
+    def test_jd_monthly_text_recognize_blocks_when_default_incomplete(self):
+        """京东月结：已选组但文本框为空且默认配置不完整时阻断。"""
+        app = self._make_recognize_app()
+        app._config["default_sender"]["items_text"] = ""
+
+        with mock.patch.object(main_mod, "messagebox") as msg:
+            app._on_recognize()
+
+        msg.showwarning.assert_called_once_with("提示", "请配置寄件信息")
+        app._append_row.assert_not_called()
+        app._frame.clear_receiver_text.assert_not_called()
+
+    def test_jd_monthly_text_recognize_ignores_text_when_no_sender_selected(self):
+        """京东月结：未选择寄件人组时忽略文本框，使用默认寄件配置。"""
+        app = self._make_recognize_app()
+        app._config["selected_sender"] = ""
+        app._frame.get_sender_text.return_value = "王五 13700137000 北京市 文件"
+        app._resolve_sender_fields = mock.Mock()
+        app._default_sender_fields = mock.Mock(
+            return_value={"sender_name": "默认寄件人"}
+        )
+
+        with mock.patch.object(
+            main_mod, "recognize_batch", return_value=[{"name": "李四"}]
+        ):
+            app._on_recognize()
+
+        app._resolve_sender_fields.assert_not_called()
+        app._default_sender_fields.assert_called_once()
+        app._append_row.assert_called_once()
+
+    def test_jd_monthly_text_recognize_blocks_when_no_group_and_default_incomplete(self):
+        """京东月结：未选择寄件人组且默认配置不完整时阻断。"""
+        app = self._make_recognize_app()
+        app._config["selected_sender"] = ""
+        app._config["default_sender"]["sender_name"] = ""
+
+        with mock.patch.object(main_mod, "messagebox") as msg:
+            app._on_recognize()
+
+        msg.showwarning.assert_called_once_with("提示", "请配置寄件信息")
+        app._append_row.assert_not_called()
+
+    def test_non_jd_monthly_text_recognize_keeps_existing_behavior(self):
+        """非京东月结模板保持原有寄件来源处理。"""
+        app = self._make_recognize_app(template_key="JD_OFFICIAL")
+        app._config["selected_sender"] = ""
+        app._config["default_sender"]["items_text"] = ""
+        app._resolve_sender_fields = mock.Mock(
+            return_value={"sender_name": "旧逻辑寄件人"}
+        )
+        app._default_sender_fields = mock.Mock()
+
+        with mock.patch.object(
+            main_mod, "recognize_batch", return_value=[{"name": "李四"}]
+        ):
+            app._on_recognize()
+
+        app._resolve_sender_fields.assert_called_once_with("")
+        app._default_sender_fields.assert_not_called()
+        app._append_row.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()
