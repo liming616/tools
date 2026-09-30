@@ -125,6 +125,11 @@ class App:
                 merged["delivery_product"] = resolve_product(
                     strategy, merged.get("province", ""), merged.get("city", "")
                 )
+        if self._template_key == "JD_OFFICIAL":
+            if not str(merged.get("weight") or "").strip():
+                merged["weight"] = "1"
+            if not str(merged.get("payment_method") or "").strip():
+                merged["payment_method"] = "寄付现结"
         return merged
 
     # ---------- 列表 ----------
@@ -511,6 +516,8 @@ class App:
             "支付方式": "payment_method",
             "总件数": "item_count",
             "件数": "item_count",
+            "重量（kg）": "weight",
+            "重量(kg)": "weight",
             "面单备注": "notes",
             "运单备注": "notes",
             "寄件人姓名": "sender_name",

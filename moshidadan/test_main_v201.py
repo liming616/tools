@@ -518,6 +518,78 @@ class MainV201Test(unittest.TestCase):
         app._default_sender_fields.assert_not_called()
         app._append_row.assert_called_once()
 
+    def test_official_weight_headers_map_to_weight_field(self):
+        """京东散单重量表头应映射到独立 weight 字段。"""
+        self.assertEqual(main_mod.App._field_key("重量（kg）"), "weight")
+        self.assertEqual(main_mod.App._field_key("重量(kg)"), "weight")
+
+    def test_empty_fields_contains_weight(self):
+        """空字段模型应包含 weight，供识别、列表和导出共用。"""
+        from template_manager import empty_fields_dict
+
+        self.assertEqual(empty_fields_dict()["weight"], "")
+
+    def test_official_merge_fields_applies_weight_and_payment_defaults(self):
+        """京东散单识别空值时应补充重量和支付方式默认值。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._app_config = {}
+        app._config = {"selected_template": "JD_OFFICIAL"}
+        app._template_key = "JD_OFFICIAL"
+        app._sender_mgr = mock.Mock()
+        app._sender_mgr.get_selected_sender_fields.return_value = {}
+        app._sender_mgr.get_temperature_layer.return_value = ""
+        app._sender_mgr.get_payment_method.return_value = ""
+
+        with mock.patch.object(main_mod, "get_flow_strategies", return_value=[]):
+            fields = app._merge_fields({
+                "weight": "",
+                "payment_method": "",
+            })
+
+        self.assertEqual(fields["weight"], "1")
+        self.assertEqual(fields["payment_method"], "寄付现结")
+
+    def test_official_merge_fields_keeps_existing_weight_and_payment(self):
+        """京东散单已有重量和支付方式时不得覆盖。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._app_config = {}
+        app._config = {"selected_template": "JD_OFFICIAL"}
+        app._template_key = "JD_OFFICIAL"
+        app._sender_mgr = mock.Mock()
+        app._sender_mgr.get_selected_sender_fields.return_value = {}
+        app._sender_mgr.get_temperature_layer.return_value = ""
+        app._sender_mgr.get_payment_method.return_value = "到付"
+
+        with mock.patch.object(main_mod, "get_flow_strategies", return_value=[]):
+            fields = app._merge_fields({
+                "weight": "2.5",
+                "payment_method": "寄付月结",
+            })
+
+        self.assertEqual(fields["weight"], "2.5")
+        self.assertEqual(fields["payment_method"], "寄付月结")
+
+    def test_monthly_merge_fields_does_not_apply_official_defaults(self):
+        """京东月结不得应用京东散单的重量和支付默认值。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._app_config = {}
+        app._config = {"selected_template": "JD_MONTHLY"}
+        app._template_key = "JD_MONTHLY"
+        app._sender_mgr = mock.Mock()
+        app._sender_mgr.get_selected_sender_fields.return_value = {}
+        app._sender_mgr.get_temperature_layer.return_value = ""
+        app._sender_mgr.get_payment_method.return_value = ""
+
+        with mock.patch.object(main_mod, "get_flow_strategies", return_value=[]):
+            fields = app._merge_fields({
+                "weight": "",
+                "payment_method": "",
+            })
+
+        self.assertEqual(fields["weight"], "")
+        self.assertEqual(fields["payment_method"], "")
+
+
 
 if __name__ == "__main__":
     unittest.main()

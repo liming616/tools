@@ -381,6 +381,7 @@ def empty_fields_dict() -> dict:
         "building": "", "unit": "", "room": "",
         "full_address": "", "full_detail": "",
         "items": [], "items_text": "", "delivery_product": "",
+        "weight": "",
         "temperature_layer": "", "notes": "", "raw": "",
         "company": "", "qq": "",
         # 寄件人 / 发货方（来自预制信息）

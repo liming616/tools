@@ -438,6 +438,8 @@ class AppFrame(tk.Tk):
             "支付方式": "payment_method",
             "总件数": "item_count",
             "件数": "item_count",
+            "重量（kg）": "weight",
+            "重量(kg)": "weight",
             "面单备注": "notes",
             "运单备注": "notes",
             "寄件人姓名": "sender_name",

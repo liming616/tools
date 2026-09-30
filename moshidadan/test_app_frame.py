@@ -24,6 +24,13 @@ class AppFrameLogicTest(unittest.TestCase):
         row = frame.build_row({"name": "张三"}, serial=1, selected=True)
         self.assertEqual(row, ("☑", "1", "张三"))
 
+    def test_build_row_displays_weight_for_official_header(self):
+        """京东散单重量列应显示 weight 字段值。"""
+        frame = AppFrame.__new__(AppFrame)
+        frame._list_headers = ["序号", "重量（kg）"]
+        row = frame.build_row({"weight": "1"}, serial=1)
+        self.assertEqual(row, ("☐", "1", "1"))
+
     def test_update_select_header_all_checked(self):
         frame = AppFrame.__new__(AppFrame)
         frame._tree = mock.MagicMock()

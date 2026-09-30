@@ -33,6 +33,25 @@ class ExcelExporterV201Test(unittest.TestCase):
         ]
         self.assertEqual(flatten_categories(cats), ["x", "y", "z"])
 
+    def test_official_product_dropdown_contains_only_two_flow_products(self):
+        """京东散单时效产品下拉框应仅包含生鲜标快和生鲜特快。"""
+        from config_manager import load_app_config
+
+        cfg = load_app_config()
+        options = cfg["template_configs"]["JD_OFFICIAL"]["dropdown_options"]["时效产品"]
+        path = os.path.join(tempfile.mkdtemp(), "official.xlsx")
+        categories = [{"name": "必填项", "fields": ["时效产品"]}]
+        write_export_excel(path, categories, [["生鲜标快"]], {"时效产品": options})
+        wb = openpyxl.load_workbook(path)
+        ws = wb.active
+        self.assertEqual(len(ws.data_validations.dataValidation), 1)
+        dd_sheet = wb["下拉选项"]
+        exported_options = [
+            dd_sheet.cell(row=row, column=1).value
+            for row in range(2, 4)
+        ]
+        self.assertEqual(exported_options, options)
+
 
 if __name__ == "__main__":
     unittest.main()

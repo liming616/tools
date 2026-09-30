@@ -18,7 +18,7 @@ class AppConfigV201Test(unittest.TestCase):
 
     def test_meta(self):
         self.assertEqual(self.cfg["app_name"], "产地快打")
-        self.assertEqual(self.cfg["version"], "v2.0.4")
+        self.assertEqual(self.cfg["version"], "v2.0.5")
         self.assertEqual(self.cfg["sender_defaults"]["temperature_layer"], "冷藏(0-4℃)")
 
     def test_templates_options(self):
@@ -61,6 +61,31 @@ class AppConfigV201Test(unittest.TestCase):
     def test_surname_list_present(self):
         """app_config 应保留 surname_list 字段。"""
         self.assertIn("surname_list", self.cfg)
+
+    def test_official_headers_and_export_use_weight_product(self):
+        """京东散单应使用时效产品和重量字段，并删除原产品类型与件数。"""
+        official = self.cfg["template_configs"]["JD_OFFICIAL"]
+        headers = official["list_headers"]
+        self.assertIn("时效产品", headers)
+        self.assertIn("重量（kg）", headers)
+        self.assertNotIn("产品类型", headers)
+        self.assertNotIn("件数", headers)
+
+        categories = official["export_categories"]
+        fields = [
+            field
+            for category in categories
+            for field in category.get("fields", [])
+        ]
+        self.assertIn("时效产品", fields)
+        self.assertIn("重量(kg)", fields)
+        self.assertNotIn("产品类型", fields)
+        self.assertNotIn("件数", fields)
+        self.assertEqual(
+            official["dropdown_options"]["时效产品"],
+            ["生鲜标快", "生鲜特快"],
+        )
+
 
 
 if __name__ == "__main__":
