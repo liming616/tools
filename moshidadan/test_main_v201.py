@@ -70,6 +70,7 @@ class MainV201Test(unittest.TestCase):
             }
         }]
         app._template_key = "JD_MONTHLY"
+        app._config = self._complete_sender_config()
         app._app_config = {
             "template_configs": {
                 "JD_MONTHLY": {
@@ -98,6 +99,7 @@ class MainV201Test(unittest.TestCase):
             }
         }]
         app._template_key = "JD_OFFICIAL"
+        app._config = self._complete_sender_config()
         app._app_config = {
             "template_configs": {
                 "JD_OFFICIAL": {
@@ -121,10 +123,24 @@ class MainV201Test(unittest.TestCase):
         write.assert_called_once()
         self.assertFalse(write.call_args.kwargs["single_row_header"])
 
+    @staticmethod
+    def _complete_sender_config():
+        """返回满足默认寄件配置门禁的完整配置。"""
+        return {
+            "default_sender": {
+                "sender_name": "默认寄件人",
+                "sender_phone": "13800138000",
+                "sender_landline": "",
+                "sender_address": "北京市朝阳区",
+                "items_text": "文件",
+            }
+        }
+
     def _base_app(self):
         """构造最小 App 实例（不含导出所需额外字段）。"""
         app = main_mod.App.__new__(main_mod.App)
         app._template_key = "JD_MONTHLY"
+        app._config = self._complete_sender_config()
         app._app_config = {
             "template_configs": {
                 "JD_MONTHLY": {
@@ -306,7 +322,7 @@ class MainV201Test(unittest.TestCase):
         """回归：自动识别开启时，收件框焦点不应拦截剪辑板文本。"""
         app = main_mod.App.__new__(main_mod.App)
         app._auto_recognize = True
-        app._config = {}
+        app._config = self._complete_sender_config()
         app._frame = mock.Mock()
         app._frame.get_sender_text.return_value = "张三 13800138000 北京 水果"
         app._frame.get_focus_target.return_value = "receiver"
@@ -325,7 +341,7 @@ class MainV201Test(unittest.TestCase):
         """回归：自动识别开启时，寄件框焦点也不应拦截剪辑板文本。"""
         app = main_mod.App.__new__(main_mod.App)
         app._auto_recognize = True
-        app._config = {}
+        app._config = self._complete_sender_config()
         app._frame = mock.Mock()
         app._frame.get_sender_text.return_value = "张三 13800138000 北京 水果"
         app._frame.get_focus_target.return_value = "sender"
@@ -374,7 +390,10 @@ class MainV201Test(unittest.TestCase):
         with mock.patch.object(main_mod, "messagebox") as msg:
             app.handle_clipboard_text("李四 13900139000 上海 文件")
 
-        msg.showwarning.assert_called_once_with("提示", "请配置寄件信息")
+        msg.showwarning.assert_not_called()
+        app._frame.set_status.assert_called_once_with(
+            "寄件信息未配置，操作前请先配置"
+        )
         app._frame.append_receiver.assert_not_called()
         app._append_row.assert_not_called()
 
@@ -473,11 +492,11 @@ class MainV201Test(unittest.TestCase):
         """京东月结：已选组但文本框为空且默认配置不完整时阻断。"""
         app = self._make_recognize_app()
         app._config["default_sender"]["items_text"] = ""
+        app._ensure_sender_config = mock.Mock(return_value=False)
 
-        with mock.patch.object(main_mod, "messagebox") as msg:
-            app._on_recognize()
+        app._on_recognize()
 
-        msg.showwarning.assert_called_once_with("提示", "请配置寄件信息")
+        app._ensure_sender_config.assert_called_once_with("文本识别")
         app._append_row.assert_not_called()
         app._frame.clear_receiver_text.assert_not_called()
 
@@ -505,18 +524,18 @@ class MainV201Test(unittest.TestCase):
         app = self._make_recognize_app()
         app._config["selected_sender"] = ""
         app._config["default_sender"]["sender_name"] = ""
+        app._ensure_sender_config = mock.Mock(return_value=False)
 
-        with mock.patch.object(main_mod, "messagebox") as msg:
-            app._on_recognize()
+        app._on_recognize()
 
-        msg.showwarning.assert_called_once_with("提示", "请配置寄件信息")
+        app._ensure_sender_config.assert_called_once_with("文本识别")
         app._append_row.assert_not_called()
 
     def test_non_jd_monthly_text_recognize_keeps_existing_behavior(self):
         """非京东月结模板保持原有寄件来源处理。"""
         app = self._make_recognize_app(template_key="JD_OFFICIAL")
         app._config["selected_sender"] = ""
-        app._config["default_sender"]["items_text"] = ""
+        app._config["default_sender"]["items_text"] = "水果"
         app._resolve_sender_fields = mock.Mock(
             return_value={"sender_name": "旧逻辑寄件人"}
         )
@@ -604,5 +623,153 @@ class MainV201Test(unittest.TestCase):
 
 
 
+    def test_refresh_sender_config_status_combines_restored_rows(self):
+        """启动恢复数据且配置缺失时，应展示组合状态提示。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._config = {"default_sender": {}}
+        app._row_data = [{"fields": {}}]
+        app._frame = mock.Mock()
+
+        app._refresh_sender_config_status(restored_count=1)
+
+        app._frame.set_status.assert_called_once_with(
+            "已恢复 1 条未导出数据；寄件信息未配置，操作前请先配置"
+        )
+
+    def test_ensure_sender_config_cancel_keeps_action_blocked(self):
+        """取消配置提示后，原业务操作应保持阻断。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._config = {"default_sender": {}}
+        app._row_data = []
+        app._frame = mock.Mock()
+        app._on_config_clicked = mock.Mock()
+
+        with mock.patch.object(main_mod.messagebox, "askyesno", return_value=False) as ask:
+            result = app._ensure_sender_config("文本识别")
+
+        self.assertFalse(result)
+        ask.assert_called_once()
+        app._on_config_clicked.assert_not_called()
+
+    def test_ensure_sender_config_resumes_after_save(self):
+        """完成配置后，应允许原业务操作继续。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._config = {"default_sender": {}}
+        app._row_data = []
+        app._frame = mock.Mock()
+
+        def complete_config():
+            app._config["default_sender"] = {
+                "sender_name": "张三",
+                "sender_email": "",
+                "sender_phone": "13900139000",
+                "sender_landline": "",
+                "sender_address": "上海市浦东新区",
+                "items_text": "文件",
+            }
+
+        app._on_config_clicked = mock.Mock(side_effect=complete_config)
+
+        with mock.patch.object(main_mod.messagebox, "askyesno", return_value=True):
+            result = app._ensure_sender_config("文本识别")
+
+        self.assertTrue(result)
+        app._on_config_clicked.assert_called_once()
+        app._frame.set_status.assert_called_with("寄件信息配置已完成")
+
+    def test_on_config_saved_refreshes_sender_config_status(self):
+        """配置保存后应刷新配置状态提示。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._refresh_sender_config_status = mock.Mock()
+
+        with mock.patch.object(main_mod, "SenderManager"), \
+                mock.patch.object(main_mod, "save_config"):
+            app._on_config_saved({})
+
+        app._refresh_sender_config_status.assert_called_once()
+    def test_auto_toggle_stays_off_when_config_canceled(self):
+        """取消配置后自动识别开关必须恢复关闭。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._config = {}
+        app._frame = mock.Mock()
+        app._ensure_sender_config = mock.Mock(return_value=False)
+
+        with mock.patch.object(main_mod, "save_config") as save:
+            app._on_auto_toggle(True)
+
+        self.assertFalse(app._auto_recognize)
+        app._ensure_sender_config.assert_called_once_with("自动识别")
+        app._frame.set_auto_recognize_state.assert_called_once_with(False)
+        save.assert_called_once()
+
+    def test_auto_toggle_continues_when_config_confirmed(self):
+        """配置确认完成后自动识别应保持开启。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._config = {}
+        app._frame = mock.Mock()
+        app._ensure_sender_config = mock.Mock(return_value=True)
+
+        with mock.patch.object(main_mod, "save_config") as save:
+            app._on_auto_toggle(True)
+
+        self.assertTrue(app._auto_recognize)
+        app._ensure_sender_config.assert_called_once_with("自动识别")
+        app._frame.set_auto_recognize_state.assert_not_called()
+        save.assert_called_once()
+    def test_text_recognize_blocks_when_sender_text_exists_but_config_incomplete(self):
+        """寄件文本框有内容时仍必须先通过默认配置门禁。"""
+        app = self._make_recognize_app()
+        app._frame.get_sender_text.return_value = "王五 13700137000 北京市 文件"
+        app._config["default_sender"]["items_text"] = ""
+        app._ensure_sender_config = mock.Mock(return_value=False)
+
+        app._on_recognize()
+
+        app._ensure_sender_config.assert_called_once_with("文本识别")
+        app._append_row.assert_not_called()
+        app._frame.clear_receiver_text.assert_not_called()
+
+    def test_export_blocks_when_sender_config_incomplete(self):
+        """一键保存前必须通过默认寄件配置门禁。"""
+        app = self._base_app()
+        app._config = {"default_sender": {}}
+        app._row_data = [
+            {"fields": {"name": "张三", "full_address": "北京", "phone": "13900139000"}}
+        ]
+        app._ensure_sender_config = mock.Mock(return_value=False)
+
+        app._export_excel()
+
+        app._ensure_sender_config.assert_called_once_with("一键保存")
+    def test_auto_recognize_blocks_when_config_incomplete_even_with_sender_text(self):
+        """后台自动识别不得用寄件文本框绕过默认配置门禁。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._auto_recognize = True
+        app._config = {"default_sender": {"sender_name": "张三"}}
+        app._frame = mock.Mock()
+        app._frame.get_sender_text.return_value = "王五 13700137000 北京市 文件"
+        app._merge_fields = mock.Mock(return_value={"name": "李四"})
+        app._append_row = mock.Mock()
+
+        with mock.patch.object(
+            main_mod, "recognize_batch", return_value=[{"name": "李四"}]
+        ), mock.patch.object(main_mod, "messagebox") as msg:
+            app.handle_clipboard_text("李四 13900139000 上海 文件")
+
+        msg.showwarning.assert_not_called()
+        app._frame.set_status.assert_called_once_with(
+            "寄件信息未配置，操作前请先配置"
+        )
+        app._append_row.assert_not_called()
+    def test_config_status_does_not_label_existing_rows_as_restored(self):
+        """运行期间已有数据时，状态刷新不得误标为启动恢复。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._config = self._complete_sender_config()
+        app._row_data = [{"fields": {}}]
+        app._frame = mock.Mock()
+
+        app._refresh_sender_config_status()
+
+        app._frame.set_status.assert_called_once_with("")
 if __name__ == "__main__":
     unittest.main()

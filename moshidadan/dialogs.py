@@ -3,7 +3,11 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-from config_manager import get_default_temperature, get_flow_strategies
+from config_manager import (
+    get_default_temperature,
+    get_flow_strategies,
+    validate_sender_default_fields,
+)
 
 
 class SenderConfigDialog(tk.Toplevel):
@@ -130,14 +134,4 @@ class SenderConfigDialog(tk.Toplevel):
 
     def validate_default_fields(self, fields: dict) -> list:
         """校验默认寄件人必填字段，返回错误提示列表（空列表表示校验通过）。"""
-        errors = []
-        if not (fields.get("sender_name") or "").strip():
-            errors.append("寄件人姓名 为必填项")
-        if not (fields.get("sender_address") or "").strip():
-            errors.append("寄件人地址 为必填项")
-        if not (fields.get("items_text") or "").strip():
-            errors.append("物品类型 为必填项")
-        if not ((fields.get("sender_phone") or "").strip()
-                or (fields.get("sender_landline") or "").strip()):
-            errors.append("寄件人手机、寄件人座机至少填写一项")
-        return errors
+        return validate_sender_default_fields(fields)

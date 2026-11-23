@@ -213,5 +213,20 @@ class AppFrameLogicTest(unittest.TestCase):
             root.destroy()
 
 
+    def test_set_auto_recognize_state_updates_ui_without_callback(self):
+        """同步自动识别开关时不得再次触发业务回调。"""
+        frame = AppFrame.__new__(AppFrame)
+        frame._auto_var = mock.Mock()
+        frame._auto_btn = mock.Mock()
+        frame._config = {}
+        frame._refresh_toggle_style = mock.Mock()
+        frame.on_auto_toggle = mock.Mock()
+
+        frame.set_auto_recognize_state(False)
+
+        frame._auto_var.set.assert_called_once_with(False)
+        frame._refresh_toggle_style.assert_called_once_with(frame._auto_btn, False)
+        frame.on_auto_toggle.assert_not_called()
+        self.assertFalse(frame._config["auto_recognize"])
 if __name__ == "__main__":
     unittest.main()

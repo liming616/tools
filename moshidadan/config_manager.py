@@ -318,3 +318,20 @@ def get_flow_strategies(app_config: dict, template_key: str) -> list:
     item = config.get(template_key, {}) or {}
     strategies = item.get("strategies", []) or []
     return list(strategies)
+
+
+def validate_sender_default_fields(fields: dict) -> list:
+    """校验默认寄件人必填字段，返回错误提示列表。"""
+    fields = fields or {}
+    errors = []
+    if not str(fields.get("sender_name") or "").strip():
+        errors.append("寄件人姓名 为必填项")
+    if not str(fields.get("sender_address") or "").strip():
+        errors.append("寄件人地址 为必填项")
+    if not str(fields.get("items_text") or "").strip():
+        errors.append("物品类型 为必填项")
+    sender_phone = str(fields.get("sender_phone") or "").strip()
+    sender_landline = str(fields.get("sender_landline") or "").strip()
+    if not sender_phone and not sender_landline:
+        errors.append("寄件人手机、寄件人座机至少填写一项")
+    return errors

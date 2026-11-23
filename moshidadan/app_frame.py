@@ -730,3 +730,10 @@ class AppFrame(tk.Tk):
         self._sender_text.insert(start, normalized)
         self._sender_text.mark_set("insert", f"{start}+{len(normalized)}c")
         self._sender_text.see("insert")
+
+    def set_auto_recognize_state(self, enabled: bool) -> None:
+        """同步自动识别开关状态，不触发业务回调。"""
+        enabled = bool(enabled)
+        self._auto_var.set(enabled)
+        self._refresh_toggle_style(self._auto_btn, enabled)
+        self._config["auto_recognize"] = enabled

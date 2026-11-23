@@ -18,6 +18,7 @@ from single_instance import acquire_single_instance
 from config_manager import (
     load_config, save_config, load_app_config,
     get_flow_strategies, get_default_temperature,
+    validate_sender_default_fields,
 )
 from template_manager import (
     get_list_headers, get_export_categories,
@@ -90,6 +91,7 @@ class App:
         self._last_clipboard_seq = None
 
         self._restore_saved_data()
+        self._refresh_sender_config_status(len(self._row_data))
         self._frame.protocol("WM_DELETE_WINDOW", self._on_close)
 
         # 启动监听
@@ -195,9 +197,8 @@ class App:
         if not normalized:
             return
         if self._auto_recognize:
-            sender_text = self._frame.get_sender_text()
-            if not (sender_text or "").strip() and not self._sender_config_ready():
-                messagebox.showwarning("提示", "请配置寄件信息")
+            if not self._sender_config_ready():
+                self._frame.set_status("寄件信息未配置，操作前请先配置")
                 return
             lines = recognize_batch(normalized)
             fields = lines[0] if lines else {}
@@ -338,6 +339,8 @@ class App:
         if not text:
             self._frame.set_status("收件人文本为空")
             return
+        if not self._ensure_sender_config("文本识别"):
+            return
         sender_text = self._frame.get_sender_text()
         sender_fields = self._resolve_text_recognition_sender_fields(sender_text)
         if sender_fields is None:
@@ -359,6 +362,8 @@ class App:
         categories = get_export_categories(self._template_key, self._app_config)
         if not categories:
             messagebox.showinfo("提示", "当前模板暂未配置可导出字段")
+            return
+        if not self._ensure_sender_config("一键保存"):
             return
         # 必填校验：收件人姓名、地址必填，手机/座机二选一，缺失则阻断导出
         invalid_msg = self._validate_required_rows()
@@ -414,12 +419,14 @@ class App:
             self._template_key, self._on_config_saved,
         )
         dialogs.wait_window()
+        self._refresh_sender_config_status()
 
     def _on_config_saved(self, config):
         """寄件配置保存后持久化并刷新寄件人。"""
         self._config = config
         self._sender_mgr = SenderManager(config)
         save_config(config)
+        self._refresh_sender_config_status()
 
     def _on_save_dir_clicked(self):
         """选择文件保存目录。"""
@@ -452,8 +459,14 @@ class App:
         save_config(self._config)
 
     def _on_auto_toggle(self, enabled):
-        """自动识别开关。"""
+        """自动识别开关：配置完整后才允许开启。"""
         self._auto_recognize = bool(enabled)
+        if self._auto_recognize and not self._ensure_sender_config("自动识别"):
+            self._auto_recognize = False
+            self._frame.set_auto_recognize_state(False)
+            self._config["auto_recognize"] = False
+            save_config(self._config)
+            return
         self._config["auto_recognize"] = self._auto_recognize
         save_config(self._config)
 
@@ -614,22 +627,13 @@ class App:
         save_collected_by_template(self._template_key, self._row_data)
 
     def _sender_config_ready(self) -> bool:
-        """按寄件信息配置规则检查默认寄件人是否已完整配置。"""
-        default = self._config.get("default_sender") or {}
-        sender_name = str(default.get("sender_name") or "").strip()
-        sender_address = str(default.get("sender_address") or "").strip()
-        items_text = str(default.get("items_text") or "").strip()
-        sender_phone = str(default.get("sender_phone") or "").strip()
-        sender_landline = str(default.get("sender_landline") or "").strip()
-        return bool(
-            sender_name
-            and sender_address
-            and items_text
-            and (sender_phone or sender_landline)
-        )
+        """判断默认寄件配置是否完整。"""
+        return not self._sender_config_errors()
 
     def _resolve_text_recognition_sender_fields(self, sender_text: str):
         """解析文本识别使用的寄件字段；默认配置无效时返回 None。"""
+        if not self._sender_config_ready():
+            return None
         if self._template_key != "JD_MONTHLY":
             return self._resolve_sender_fields(sender_text)
         selected_sender = str(self._config.get("selected_sender") or "").strip()
@@ -638,6 +642,45 @@ class App:
         if not self._sender_config_ready():
             return None
         return self._default_sender_fields()
+
+    def _sender_config_errors(self) -> list:
+        """返回默认寄件配置缺失项。"""
+        default_sender = self._config.get("default_sender") or {}
+        return validate_sender_default_fields(default_sender)
+
+    def _refresh_sender_config_status(self, restored_count: int = 0) -> None:
+        """根据配置和启动恢复数量更新状态栏。"""
+        if self._sender_config_ready():
+            if restored_count:
+                self._frame.set_status(
+                    f"已恢复 {restored_count} 条未导出数据"
+                )
+            else:
+                self._frame.set_status("")
+            return
+        status = "寄件信息未配置，操作前请先配置"
+        if restored_count:
+            status = f"已恢复 {restored_count} 条未导出数据；{status}"
+        self._frame.set_status(status)
+
+    def _ensure_sender_config(self, action_name: str) -> bool:
+        """执行业务操作前校验配置，并在需要时引导用户配置。"""
+        errors = self._sender_config_errors()
+        if not errors:
+            return True
+        self._frame.set_status("寄件信息未配置，操作前请先配置")
+        message = (
+            f"使用【{action_name}】前需完成寄件信息配置："
+            + "、".join(errors)
+            + "。是否现在配置？"
+        )
+        if not messagebox.askyesno("寄件信息未配置", message):
+            return False
+        self._on_config_clicked()
+        if self._sender_config_errors():
+            return False
+        self._frame.set_status("寄件信息配置已完成")
+        return True
 
 
 def main() -> None:

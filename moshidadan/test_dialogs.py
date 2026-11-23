@@ -5,6 +5,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import config_manager
 from dialogs import SenderConfigDialog
 
 
@@ -19,6 +20,31 @@ class _FakeVar:
 
 
 class DialogContextTest(unittest.TestCase):
+    def test_validate_sender_default_fields_reports_all_missing(self):
+        """共享校验应完整返回所有默认寄件配置缺失项。"""
+        validator = getattr(config_manager, "validate_sender_default_fields", None)
+        self.assertTrue(callable(validator))
+
+        fields = {
+            "sender_name": "",
+            "sender_phone": "",
+            "sender_landline": "",
+            "sender_address": "",
+            "items_text": "",
+        }
+
+        errors = validator(fields)
+
+        self.assertEqual(
+            errors,
+            [
+                "寄件人姓名 为必填项",
+                "寄件人地址 为必填项",
+                "物品类型 为必填项",
+                "寄件人手机、寄件人座机至少填写一项",
+            ],
+        )
+
     def test_collect_default_fields(self):
         dialog = SenderConfigDialog.__new__(SenderConfigDialog)
         dialog._default_vars = {
