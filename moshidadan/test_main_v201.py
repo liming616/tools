@@ -34,17 +34,16 @@ class MainV201Test(unittest.TestCase):
         self.assertEqual(fields["temperature_layer"], "冷藏(0-4℃)")
         self.assertEqual(fields["payment_method"], "寄付月结")
 
-    def test_merge_fields_fallback_first_strategy_when_no_selected(self):
-        """回归：JD_OFFICIAL 未写入 selected_strategy 时，应回退到内置第一条流向策略。"""
+    def test_merge_fields_keeps_product_empty_when_strategy_not_selected(self):
+        """未选择流向策略时不得静默使用第一条规则。"""
         app = main_mod.App.__new__(main_mod.App)
         app._app_config = {}
-        app._config = {"selected_template": "JD_OFFICIAL"}
+        app._config = {"selected_template": "JD_OFFICIAL", "selected_strategy": {}}
         app._template_key = "JD_OFFICIAL"
         app._sender_mgr = mock.Mock()
         app._sender_mgr.get_selected_sender_fields.return_value = {}
         app._sender_mgr.get_temperature_layer.return_value = "冷藏(0-4℃)"
         app._sender_mgr.get_payment_method.return_value = ""
-        # selected_strategy 为空 -> get_selected_strategy_id 返回空
         app._sender_mgr.get_selected_strategy_id.return_value = ""
         strategy_q1 = {
             "id": "q1", "name": "江浙沪-生鲜标快，其他-生鲜特快",
@@ -59,8 +58,7 @@ class MainV201Test(unittest.TestCase):
                 "province": "江苏", "city": "宿迁", "temperature_layer": "",
                 "payment_method": "", "notes": "",
             })
-        # 未选中策略，但规则命中江苏省 -> 生鲜标快
-        self.assertEqual(fields["delivery_product"], "生鲜标快")
+        self.assertEqual(fields["delivery_product"], "")
 
     def test_export_excel_clears_and_saves(self):
         app = main_mod.App.__new__(main_mod.App)
@@ -406,7 +404,7 @@ class MainV201Test(unittest.TestCase):
 
         msg.showwarning.assert_not_called()
         app._frame.set_status.assert_called_once_with(
-            "寄件信息未配置，操作前请先配置"
+            "寄件信息或流向产品配置未完成，操作前请先配置"
         )
         app._frame.append_receiver.assert_not_called()
         app._append_row.assert_not_called()
@@ -506,11 +504,11 @@ class MainV201Test(unittest.TestCase):
         """京东月结：已选组但文本框为空且默认配置不完整时阻断。"""
         app = self._make_recognize_app()
         app._config["default_sender"]["items_text"] = ""
-        app._ensure_sender_config = mock.Mock(return_value=False)
+        app._ensure_recognition_config = mock.Mock(return_value=False)
 
         app._on_recognize()
 
-        app._ensure_sender_config.assert_called_once_with("文本识别")
+        app._ensure_recognition_config.assert_called_once_with("文本识别")
         app._append_row.assert_not_called()
         app._frame.clear_receiver_text.assert_not_called()
 
@@ -538,11 +536,11 @@ class MainV201Test(unittest.TestCase):
         app = self._make_recognize_app()
         app._config["selected_sender"] = ""
         app._config["default_sender"]["sender_name"] = ""
-        app._ensure_sender_config = mock.Mock(return_value=False)
+        app._ensure_recognition_config = mock.Mock(return_value=False)
 
         app._on_recognize()
 
-        app._ensure_sender_config.assert_called_once_with("文本识别")
+        app._ensure_recognition_config.assert_called_once_with("文本识别")
         app._append_row.assert_not_called()
 
     def test_non_jd_monthly_text_recognize_uses_default_without_sender_group(self):
@@ -645,7 +643,7 @@ class MainV201Test(unittest.TestCase):
         app._refresh_sender_config_status(restored_count=1)
 
         app._frame.set_status.assert_called_once_with(
-            "已恢复 1 条未导出数据；寄件信息未配置，操作前请先配置"
+            "已恢复 1 条未导出数据；寄件信息或流向产品配置未完成，操作前请先配置"
         )
 
     def test_ensure_sender_config_cancel_keeps_action_blocked(self):
@@ -704,13 +702,13 @@ class MainV201Test(unittest.TestCase):
         app = main_mod.App.__new__(main_mod.App)
         app._config = {}
         app._frame = mock.Mock()
-        app._ensure_sender_config = mock.Mock(return_value=False)
+        app._ensure_recognition_config = mock.Mock(return_value=False)
 
         with mock.patch.object(main_mod, "save_config") as save:
             app._on_auto_toggle(True)
 
         self.assertFalse(app._auto_recognize)
-        app._ensure_sender_config.assert_called_once_with("自动识别")
+        app._ensure_recognition_config.assert_called_once_with("自动识别")
         app._frame.set_auto_recognize_state.assert_called_once_with(False)
         save.assert_called_once()
 
@@ -719,13 +717,13 @@ class MainV201Test(unittest.TestCase):
         app = main_mod.App.__new__(main_mod.App)
         app._config = {}
         app._frame = mock.Mock()
-        app._ensure_sender_config = mock.Mock(return_value=True)
+        app._ensure_recognition_config = mock.Mock(return_value=True)
 
         with mock.patch.object(main_mod, "save_config") as save:
             app._on_auto_toggle(True)
 
         self.assertTrue(app._auto_recognize)
-        app._ensure_sender_config.assert_called_once_with("自动识别")
+        app._ensure_recognition_config.assert_called_once_with("自动识别")
         app._frame.set_auto_recognize_state.assert_not_called()
         save.assert_called_once()
     def test_text_recognize_blocks_when_sender_text_exists_but_config_incomplete(self):
@@ -733,11 +731,11 @@ class MainV201Test(unittest.TestCase):
         app = self._make_recognize_app()
         app._frame.get_sender_text.return_value = "王五 13700137000 北京市 文件"
         app._config["default_sender"]["items_text"] = ""
-        app._ensure_sender_config = mock.Mock(return_value=False)
+        app._ensure_recognition_config = mock.Mock(return_value=False)
 
         app._on_recognize()
 
-        app._ensure_sender_config.assert_called_once_with("文本识别")
+        app._ensure_recognition_config.assert_called_once_with("文本识别")
         app._append_row.assert_not_called()
         app._frame.clear_receiver_text.assert_not_called()
 
@@ -748,11 +746,11 @@ class MainV201Test(unittest.TestCase):
         app._row_data = [
             {"fields": {"name": "张三", "full_address": "北京", "phone": "13900139000"}}
         ]
-        app._ensure_sender_config = mock.Mock(return_value=False)
+        app._ensure_recognition_config = mock.Mock(return_value=False)
 
         app._export_excel()
 
-        app._ensure_sender_config.assert_called_once_with("一键保存")
+        app._ensure_recognition_config.assert_called_once_with("一键保存")
     def test_auto_recognize_blocks_when_config_incomplete_even_with_sender_text(self):
         """后台自动识别不得用寄件文本框绕过默认配置门禁。"""
         app = main_mod.App.__new__(main_mod.App)
@@ -770,7 +768,7 @@ class MainV201Test(unittest.TestCase):
 
         msg.showwarning.assert_not_called()
         app._frame.set_status.assert_called_once_with(
-            "寄件信息未配置，操作前请先配置"
+            "寄件信息或流向产品配置未完成，操作前请先配置"
         )
         app._append_row.assert_not_called()
     def test_config_status_does_not_label_existing_rows_as_restored(self):
@@ -899,5 +897,118 @@ class MainV201Test(unittest.TestCase):
         self.assertEqual(fields["sender_name"], "默认寄件人")
         self.assertEqual(fields["sender_phone"], "13800138000")
         app._sender_mgr.get_selected_sender_fields.assert_not_called()
+    def test_merge_fields_does_not_default_first_strategy(self):
+        """未选择流向策略时不得静默使用第一条。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._config = self._complete_sender_config()
+        app._config["selected_strategy"] = {}
+        app._template_key = "JD_MONTHLY"
+        app._app_config = {
+            "flow_product_config": {
+                "JD_MONTHLY": {
+                    "strategies": [
+                        {
+                            "id": "p0",
+                            "name": "全流向-生鲜特快",
+                            "rules": [],
+                            "fallback_product": "生鲜特快",
+                        }
+                    ]
+                }
+            }
+        }
+        app._sender_mgr = mock.Mock()
+        app._sender_mgr.get_selected_sender_fields.return_value = {}
+        app._sender_mgr.get_temperature_layer.return_value = ""
+        app._sender_mgr.get_payment_method.return_value = ""
+        app._sender_mgr.get_selected_strategy_id.return_value = ""
+
+        fields = app._merge_fields({
+            "name": "张三",
+            "phone": "13800138000",
+            "province": "北京",
+            "city": "北京",
+            "delivery_product": "",
+        })
+
+        self.assertEqual(fields["delivery_product"], "")
+
+    def test_recognition_config_requires_flow_strategy(self):
+        """寄件信息完整但未选择流向产品时，识别配置仍不完整。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._config = self._complete_sender_config()
+        app._config["selected_strategy"] = {}
+        app._template_key = "JD_MONTHLY"
+        app._app_config = {
+            "flow_product_config": {
+                "JD_MONTHLY": {
+                    "strategies": [
+                        {"id": "p0", "name": "全流向-生鲜特快", "rules": [], "fallback_product": "生鲜特快"}
+                    ]
+                }
+            }
+        }
+        app._sender_mgr = mock.Mock()
+        app._sender_mgr.get_selected_strategy_id.return_value = ""
+
+        self.assertFalse(app._recognition_config_ready())
+
+    def test_ensure_recognition_config_prompts_for_flow_strategy(self):
+        """显式识别缺少流向配置时应引导配置并继续原操作。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._config = self._complete_sender_config()
+        app._config["selected_strategy"] = {}
+        app._template_key = "JD_MONTHLY"
+        app._app_config = {
+            "flow_product_config": {
+                "JD_MONTHLY": {
+                    "strategies": [
+                        {"id": "p0", "name": "全流向-生鲜特快", "rules": [], "fallback_product": "生鲜特快"}
+                    ]
+                }
+            }
+        }
+        app._frame = mock.Mock()
+
+        def select_strategy():
+            app._config["selected_strategy"]["JD_MONTHLY"] = "p0"
+
+        app._on_config_clicked = mock.Mock(side_effect=select_strategy)
+
+        with mock.patch.object(main_mod.messagebox, "askyesno", return_value=True):
+            result = app._ensure_recognition_config("文本识别")
+
+        self.assertTrue(result)
+        app._on_config_clicked.assert_called_once()
+        app._frame.set_status.assert_called_with("识别配置已完成")
+
+    def test_background_auto_recognize_blocks_without_flow_strategy(self):
+        """后台自动识别缺少流向配置时只更新状态，不生成列表。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._auto_recognize = True
+        app._config = self._complete_sender_config()
+        app._config["selected_strategy"] = {}
+        app._template_key = "JD_MONTHLY"
+        app._app_config = {
+            "flow_product_config": {
+                "JD_MONTHLY": {
+                    "strategies": [
+                        {"id": "p0", "name": "全流向-生鲜特快", "rules": [], "fallback_product": "生鲜特快"}
+                    ]
+                }
+            }
+        }
+        app._frame = mock.Mock()
+        app._frame.get_focus_target.return_value = ""
+        app._append_row = mock.Mock()
+
+        app.handle_clipboard_text("张三 13800138000 北京市朝阳区 苹果x2")
+
+        app._frame.set_status.assert_called_once_with(
+            "寄件信息或流向产品配置未完成，操作前请先配置"
+        )
+        app._append_row.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

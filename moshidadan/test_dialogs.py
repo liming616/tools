@@ -6,6 +6,9 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import config_manager
+from unittest import mock
+
+import dialogs as dialogs_mod
 from dialogs import SenderConfigDialog
 
 
@@ -124,6 +127,47 @@ class DialogContextTest(unittest.TestCase):
             ),
             "冷冻(≤-18℃)",
         )
+
+    def test_initial_strategy_id_empty_without_saved_selection(self):
+        """没有已保存策略时，不得自动选中第一条。"""
+        strategies = [{"id": "p0", "name": "全流向-生鲜特快"}, {"id": "p4", "name": "全流向-生鲜标快"}]
+
+        self.assertEqual(SenderConfigDialog._resolve_initial_strategy_id(strategies, ""), "")
+        self.assertEqual(SenderConfigDialog._resolve_initial_strategy_id(strategies, "invalid"), "")
+        self.assertEqual(SenderConfigDialog._resolve_initial_strategy_id(strategies, "p4"), "p4")
+
+    def test_on_confirm_blocks_when_flow_strategy_not_selected(self):
+        """流向策略未选择时不得保存配置。"""
+        dialog = SenderConfigDialog.__new__(SenderConfigDialog)
+        dialog._app_config = {
+            "flow_product_config": {
+                "JD_MONTHLY": {
+                    "strategies": [
+                        {"id": "p0", "name": "全流向-生鲜特快", "rules": [], "fallback_product": "生鲜特快"}
+                    ]
+                }
+            }
+        }
+        dialog._template_key = "JD_MONTHLY"
+        dialog._default_vars = {
+            "寄件人姓名": _FakeVar("张三"),
+            "寄件人手机": _FakeVar("13800138000"),
+            "寄件人座机": _FakeVar(""),
+            "寄件人地址": _FakeVar("北京市"),
+            "物品类型": _FakeVar("文件"),
+            "温层": _FakeVar(""),
+        }
+        dialog._strategy_var = _FakeVar("")
+        dialog._config = {}
+        dialog._on_save = mock.Mock()
+        dialog.destroy = mock.Mock()
+
+        with mock.patch.object(dialogs_mod.messagebox, "showwarning") as warning:
+            dialog._on_confirm()
+
+        warning.assert_called_once_with("校验未通过", "流向产品配置 为必填项")
+        dialog._on_save.assert_not_called()
+        dialog.destroy.assert_not_called()
 
 
 if __name__ == "__main__":

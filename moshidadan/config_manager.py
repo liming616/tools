@@ -335,3 +335,13 @@ def validate_sender_default_fields(fields: dict) -> list:
     if not sender_phone and not sender_landline:
         errors.append("寄件人手机、寄件人座机至少填写一项")
     return errors
+
+def validate_flow_strategy_selection(strategies: list, selected_id: str) -> list:
+    """校验流向产品策略是否已选择且有效。"""
+    if not strategies:
+        return []
+    selected = str(selected_id or "").strip()
+    valid_ids = {str(item.get("id") or "").strip() for item in strategies}
+    if selected and selected in valid_ids:
+        return []
+    return ["流向产品配置 为必填项"]

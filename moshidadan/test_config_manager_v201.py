@@ -5,7 +5,11 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config_manager import get_default_temperature, get_flow_strategies
+from config_manager import (
+    get_default_temperature,
+    get_flow_strategies,
+    validate_flow_strategy_selection,
+)
 
 
 class ConfigManagerV201Test(unittest.TestCase):
@@ -34,5 +38,19 @@ class ConfigManagerV201Test(unittest.TestCase):
         self.assertEqual(get_flow_strategies(self.app_config, "JD_OFFICIAL"), [])
 
 
+    def test_flow_strategy_selection_validation(self):
+        """存在策略时，空选择和失效选择都必须校验失败。"""
+        strategies = [{"id": "p0"}, {"id": "p4"}]
+
+        self.assertEqual(validate_flow_strategy_selection(strategies, "p4"), [])
+        self.assertEqual(validate_flow_strategy_selection([], ""), [])
+        self.assertEqual(
+            validate_flow_strategy_selection(strategies, ""),
+            ["流向产品配置 为必填项"],
+        )
+        self.assertEqual(
+            validate_flow_strategy_selection(strategies, "invalid"),
+            ["流向产品配置 为必填项"],
+        )
 if __name__ == "__main__":
     unittest.main()

@@ -47,18 +47,20 @@
   "flow_product_config": {
     "JD_MONTHLY": {
       "strategies": [
-        { "id": "p0", "name": "无", "rules": [], "fallback_product": "生鲜特快" },
+        { "id": "p0", "name": "全流向-生鲜特快", "rules": [], "fallback_product": "生鲜特快" },
         { "id": "p1", "name": "京津冀-生鲜标快，其他-生鲜特快", "rules": [ { "provinces": ["北京", "天津", "河北"], "cities": [], "product": "生鲜标快" } ], "fallback_product": "生鲜特快" },
         { "id": "p2", "name": "黑吉辽-生鲜标快，其他-生鲜特快", "rules": [ { "provinces": ["黑龙江", "吉林", "辽宁"], "cities": [], "product": "生鲜标快" } ], "fallback_product": "生鲜特快" },
-        { "id": "p3", "name": "江浙沪-生鲜特快，其他-生鲜标快", "rules": [ { "provinces": ["江苏", "浙江", "上海"], "cities": [], "product": "生鲜特快" } ], "fallback_product": "生鲜标快" }
+        { "id": "p3", "name": "江浙沪-生鲜特快，其他-生鲜标快", "rules": [ { "provinces": ["江苏", "浙江", "上海"], "cities": [], "product": "生鲜特快" } ], "fallback_product": "生鲜标快" },
+        { "id": "p4", "name": "全流向-生鲜标快", "rules": [], "fallback_product": "生鲜标快" }
       ]
     },
     "JD_OFFICIAL": {
       "strategies": [
-        { "id": "q0", "name": "无", "rules": [], "fallback_product": "生鲜特快" },
+        { "id": "q0", "name": "全流向-生鲜特快", "rules": [], "fallback_product": "生鲜特快" },
         { "id": "q1", "name": "江浙沪-生鲜标快，其他-生鲜特快", "rules": [ { "provinces": ["江苏", "浙江", "上海"], "cities": [], "product": "生鲜标快" } ], "fallback_product": "生鲜特快" },
         { "id": "q2", "name": "黑吉辽-生鲜标快，其他-生鲜特快", "rules": [ { "provinces": ["黑龙江", "吉林", "辽宁"], "cities": [], "product": "生鲜标快" } ], "fallback_product": "生鲜特快" },
-        { "id": "q3", "name": "江浙沪-生鲜特快，其他-生鲜标快", "rules": [ { "provinces": ["江苏", "浙江", "上海"], "cities": [], "product": "生鲜特快" } ], "fallback_product": "生鲜标快" }
+        { "id": "q3", "name": "江浙沪-生鲜特快，其他-生鲜标快", "rules": [ { "provinces": ["江苏", "浙江", "上海"], "cities": [], "product": "生鲜特快" } ], "fallback_product": "生鲜标快" },
+        { "id": "q4", "name": "全流向-生鲜标快", "rules": [], "fallback_product": "生鲜标快" }
       ]
     }
   }

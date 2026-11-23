@@ -18,6 +18,7 @@ from single_instance import acquire_single_instance
 from config_manager import (
     load_config, save_config, load_app_config,
     get_flow_strategies, get_default_temperature,
+    validate_flow_strategy_selection,
     validate_sender_default_fields,
 )
 from template_manager import (
@@ -123,10 +124,11 @@ class App:
                 strategy_id = self._sender_mgr.get_selected_strategy_id(self._template_key)
                 strategy = next(
                     (s for s in strategies if s.get("id") == strategy_id), None
-                ) or strategies[0]
-                merged["delivery_product"] = resolve_product(
-                    strategy, merged.get("province", ""), merged.get("city", "")
                 )
+                if strategy:
+                    merged["delivery_product"] = resolve_product(
+                        strategy, merged.get("province", ""), merged.get("city", "")
+                    )
         if self._template_key == "JD_OFFICIAL":
             if not str(merged.get("weight") or "").strip():
                 merged["weight"] = "1"
@@ -204,8 +206,8 @@ class App:
             self._frame.replace_sender_selection(normalized)
             return
         if self._auto_recognize:
-            if not self._sender_config_ready():
-                self._frame.set_status("寄件信息未配置，操作前请先配置")
+            if not self._recognition_config_ready():
+                self._frame.set_status("寄件信息或流向产品配置未完成，操作前请先配置")
                 return
             lines = recognize_batch(normalized)
             fields = lines[0] if lines else {}
@@ -347,7 +349,7 @@ class App:
         if not text:
             self._frame.set_status("收件人文本为空")
             return
-        if not self._ensure_sender_config("文本识别"):
+        if not self._ensure_recognition_config("文本识别"):
             return
         sender_fields = self._resolve_current_recognition_sender_fields()
         if sender_fields is None:
@@ -370,7 +372,7 @@ class App:
         if not categories:
             messagebox.showinfo("提示", "当前模板暂未配置可导出字段")
             return
-        if not self._ensure_sender_config("一键保存"):
+        if not self._ensure_recognition_config("一键保存"):
             return
         # 必填校验：收件人姓名、地址必填，手机/座机二选一，缺失则阻断导出
         invalid_msg = self._validate_required_rows()
@@ -468,7 +470,7 @@ class App:
     def _on_auto_toggle(self, enabled):
         """自动识别开关：配置完整后才允许开启。"""
         self._auto_recognize = bool(enabled)
-        if self._auto_recognize and not self._ensure_sender_config("自动识别"):
+        if self._auto_recognize and not self._ensure_recognition_config("自动识别"):
             self._auto_recognize = False
             self._frame.set_auto_recognize_state(False)
             self._config["auto_recognize"] = False
@@ -652,8 +654,8 @@ class App:
         return validate_sender_default_fields(default_sender)
 
     def _refresh_sender_config_status(self, restored_count: int = 0) -> None:
-        """根据配置和启动恢复数量更新状态栏。"""
-        if self._sender_config_ready():
+        """根据寄件与流向配置状态更新状态栏。"""
+        if self._recognition_config_ready():
             if restored_count:
                 self._frame.set_status(
                     f"已恢复 {restored_count} 条未导出数据"
@@ -661,7 +663,7 @@ class App:
             else:
                 self._frame.set_status("")
             return
-        status = "寄件信息未配置，操作前请先配置"
+        status = "寄件信息或流向产品配置未完成，操作前请先配置"
         if restored_count:
             status = f"已恢复 {restored_count} 条未导出数据；{status}"
         self._frame.set_status(status)
@@ -690,6 +692,43 @@ class App:
         return self._resolve_text_recognition_sender_fields(
             self._frame.get_sender_text()
         )
+
+    def _flow_config_errors(self) -> list:
+        """返回当前模板流向产品配置缺失项。"""
+        template_key = getattr(self, "_template_key", "")
+        app_config = getattr(self, "_app_config", {}) or {}
+        strategies = get_flow_strategies(app_config, template_key)
+        selected_map = getattr(self, "_config", {}).get("selected_strategy") or {}
+        selected_id = str(selected_map.get(template_key) or "").strip()
+        return validate_flow_strategy_selection(strategies, selected_id)
+
+    def _recognition_config_errors(self) -> list:
+        """返回文本识别和自动识别所需的完整配置错误。"""
+        return self._sender_config_errors() + self._flow_config_errors()
+
+    def _recognition_config_ready(self) -> bool:
+        """判断寄件信息与流向产品配置是否完整。"""
+        return not self._recognition_config_errors()
+
+    def _ensure_recognition_config(self, action_name: str) -> bool:
+        """执行识别或导出前校验寄件与流向配置。"""
+        errors = self._recognition_config_errors()
+        if not errors:
+            return True
+        self._frame.set_status("寄件信息或流向产品配置未完成，操作前请先配置")
+        message = (
+            f"使用【{action_name}】前需完成以下配置："
+            + "、".join(errors)
+            + "。是否现在配置？"
+        )
+        if not messagebox.askyesno("配置未完成", message):
+            return False
+        self._on_config_clicked()
+        if self._recognition_config_errors():
+            return False
+        self._frame.set_status("识别配置已完成")
+        return True
+
 
 def main() -> None:
     """主入口：单实例 + 崩溃处理 + 加载配置 + 启动主窗口。"""

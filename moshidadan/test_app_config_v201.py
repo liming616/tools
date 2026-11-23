@@ -7,6 +7,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config_manager import load_app_config, get_flow_strategies
+from flow_product import resolve_product
 
 
 class AppConfigV201Test(unittest.TestCase):
@@ -88,5 +89,26 @@ class AppConfigV201Test(unittest.TestCase):
 
 
 
+    def test_fixed_all_flow_product_options(self):
+        """两个模板应提供全流向生鲜特快和生鲜标快。"""
+        expected = {
+            "JD_MONTHLY": (("p0", "全流向-生鲜特快", "生鲜特快"), ("p4", "全流向-生鲜标快", "生鲜标快")),
+            "JD_OFFICIAL": (("q0", "全流向-生鲜特快", "生鲜特快"), ("q4", "全流向-生鲜标快", "生鲜标快")),
+        }
+        for template_key, options in expected.items():
+            strategies = get_flow_strategies(self.cfg, template_key)
+            for strategy_id, name, product in options:
+                strategy = next(
+                    (item for item in strategies if item.get("id") == strategy_id),
+                    None,
+                )
+                self.assertIsNotNone(strategy)
+                self.assertEqual(strategy["name"], name)
+                self.assertEqual(strategy["rules"], [])
+                for province, city in (("北京", "北京"), ("广东", "广州"), ("", "")):
+                    self.assertEqual(
+                        resolve_product(strategy, province, city),
+                        product,
+                    )
 if __name__ == "__main__":
     unittest.main()

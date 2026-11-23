@@ -6,6 +6,7 @@ from tkinter import ttk, messagebox
 from config_manager import (
     get_default_temperature,
     get_flow_strategies,
+    validate_flow_strategy_selection,
     validate_sender_default_fields,
 )
 
@@ -79,8 +80,9 @@ class SenderConfigDialog(tk.Toplevel):
             # 优先回显已保存的选中策略；缺失或已不在策略列表时才回退第一条，
             # 避免打开弹窗后默认选中第一条导致保存时误覆盖用户之前的配置。
             saved = ((self._config.get("selected_strategy") or {}).get(self._template_key) or "")
-            strategy_ids = {s.get("id") for s in strategies}
-            self._strategy_var.set(saved if saved in strategy_ids else strategies[0]["id"])
+            self._strategy_var.set(
+                self._resolve_initial_strategy_id(strategies, saved)
+            )
             for s in strategies:
                 ttk.Radiobutton(
                     flow, text=s.get("name", s.get("id", "")), value=s.get("id", ""),
@@ -97,6 +99,13 @@ class SenderConfigDialog(tk.Toplevel):
         """保存默认寄件人与流向策略，写回 config 并关闭弹窗。"""
         fields = self.collect_default_fields()
         errors = self.validate_default_fields(fields)
+        strategies = get_flow_strategies(self._app_config, self._template_key)
+        errors.extend(
+            validate_flow_strategy_selection(
+                strategies,
+                self._strategy_var.get(),
+            )
+        )
         if errors:
             messagebox.showwarning("校验未通过", "；".join(errors))
             return
@@ -135,3 +144,10 @@ class SenderConfigDialog(tk.Toplevel):
     def validate_default_fields(self, fields: dict) -> list:
         """校验默认寄件人必填字段，返回错误提示列表（空列表表示校验通过）。"""
         return validate_sender_default_fields(fields)
+
+    @staticmethod
+    def _resolve_initial_strategy_id(strategies: list, saved_id: str) -> str:
+        """仅在已保存策略仍有效时回显，不自动选择默认项。"""
+        saved = str(saved_id or "").strip()
+        valid_ids = {str(item.get("id") or "").strip() for item in strategies}
+        return saved if saved in valid_ids else ""
