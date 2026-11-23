@@ -40,6 +40,29 @@ class RecognitionTest(unittest.TestCase):
         fields = recognize_line("地址：北京市朝阳区xx路1号\n备注：冷冻保存")
         self.assertIn("冷冻保存", fields["notes"])
 
+    def test_product_text_moves_to_notes_when_receiver_exists(self):
+        """识别到收件人时，商品仍应进入备注而不是物品类型。"""
+        fields = recognize_line(
+            "张三 13800138000 北京市朝阳区xx路1号 苹果x2 周末配送"
+        )
+
+        self.assertEqual(fields["name"], "张三")
+        self.assertEqual(fields["phone"], "13800138000")
+        self.assertEqual(fields["items"], [])
+        self.assertEqual(fields["items_text"], "")
+        self.assertIn("苹果x2", fields["notes"])
+        self.assertIn("周末配送", fields["notes"])
+
+    def test_product_and_explicit_note_are_not_duplicated(self):
+        """商品标签同时吞入备注时，最终备注只能保留一次。"""
+        fields = recognize_line(
+            "收货人：李四 电话：13900139000 地址：上海市浦东新区博云路2号 "
+            "商品：文件x2 备注：周末配送"
+        )
+
+        self.assertEqual(fields["notes"].count("周末配送"), 1)
+        self.assertIn("文件x2", fields["notes"])
+
 
 if __name__ == "__main__":
     unittest.main()

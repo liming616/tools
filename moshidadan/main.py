@@ -132,6 +132,9 @@ class App:
                 merged["weight"] = "1"
             if not str(merged.get("payment_method") or "").strip():
                 merged["payment_method"] = "寄付现结"
+        default_sender = self._config.get("default_sender") or {}
+        merged["items"] = []
+        merged["items_text"] = str(default_sender.get("items_text") or "").strip()
         return merged
 
     # ---------- 列表 ----------

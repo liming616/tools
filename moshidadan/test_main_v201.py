@@ -771,5 +771,59 @@ class MainV201Test(unittest.TestCase):
         app._refresh_sender_config_status()
 
         app._frame.set_status.assert_called_once_with("")
+    def test_merge_fields_uses_configured_item_type(self):
+        """物品类型必须取默认寄件配置，并清空识别商品。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._app_config = {}
+        app._config = {
+            "default_sender": {
+                "items_text": "文件",
+            }
+        }
+        app._template_key = "JD_MONTHLY"
+        app._sender_mgr = mock.Mock()
+        app._sender_mgr.get_selected_sender_fields.return_value = {}
+        app._sender_mgr.get_temperature_layer.return_value = ""
+        app._sender_mgr.get_payment_method.return_value = ""
+        app._sender_mgr.get_selected_strategy_id.return_value = ""
+
+        fields = app._merge_fields({
+            "name": "张三",
+            "phone": "13800138000",
+            "items": [{"name": "苹果", "raw": "苹果x2", "qty": "2"}],
+            "items_text": "苹果x2",
+            "notes": "苹果x2; 周末配送",
+        })
+
+        self.assertEqual(fields["items"], [])
+        self.assertEqual(fields["items_text"], "文件")
+        self.assertEqual(fields["notes"], "苹果x2; 周末配送")
+
+    def test_auto_recognize_uses_configured_item_type(self):
+        """自动识别应把商品归备注并使用配置物品类型。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._auto_recognize = True
+        app._config = self._complete_sender_config()
+        app._config["default_sender"]["items_text"] = "文件"
+        app._template_key = "JD_MONTHLY"
+        app._app_config = {}
+        app._sender_mgr = mock.Mock()
+        app._sender_mgr.get_selected_sender_fields.return_value = {}
+        app._sender_mgr.get_temperature_layer.return_value = ""
+        app._sender_mgr.get_payment_method.return_value = ""
+        app._sender_mgr.get_selected_strategy_id.return_value = ""
+        app._append_row = mock.Mock()
+
+        app.handle_clipboard_text(
+            "张三 13800138000 北京市朝阳区xx路1号 苹果x2 周末配送"
+        )
+
+        fields = app._append_row.call_args.args[0]
+        self.assertEqual(fields["items"], [])
+        self.assertEqual(fields["items_text"], "文件")
+        self.assertIn("苹果x2", fields["notes"])
+        self.assertIn("周末配送", fields["notes"])
+
+
 if __name__ == "__main__":
     unittest.main()

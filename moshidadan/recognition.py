@@ -16,15 +16,14 @@ def normalize_text(text: str) -> str:
 
 
 def recognize_line(line: str) -> dict:
-    """识别单行文本，返回 fields dict。"""
+    """识别单行文本，返回收件人字段、结构化地址和统一备注。"""
     parsed = parse_order_safe(line)
     addr = parse_address_safe(parsed.address or line)
-    items_text = ""
-    for item in getattr(parsed, "items", []) or []:
-        name = str(item.get("raw") or item.get("name") or "").strip()
-        if name:
-            items_text = (items_text + "; " + name) if items_text else name
-
+    raw_item_texts = [
+        str(item.get("raw") or item.get("name") or "").strip()
+        for item in (getattr(parsed, "items", []) or [])
+        if str(item.get("raw") or item.get("name") or "").strip()
+    ]
     fields = {
         "name": (parsed.name or "").strip(),
         "phone": (parsed.phone or "").strip(),
@@ -33,23 +32,14 @@ def recognize_line(line: str) -> dict:
         "province": addr.province or "",
         "city": addr.city or "",
         "district": addr.district or "",
-        "items_text": items_text,
+        "items": [],
+        "items_text": "",
         "delivery_product": "",
         "temperature_layer": "",
         "payment_method": "",
         "item_count": "",
-        "notes": (parsed.notes or "").strip(),
+        "notes": merge_note_fragments(parsed.notes, *raw_item_texts),
     }
-    # 未识别到有效收件人信息（姓名/手机/座机，或解析出省/市行政区域）时，
-    # 把疑似商品/普通文本归入面单备注，而不是作为物品类型。
-    # 注意：full_address 对无法识别省份的文本会被 address_parser 整体兜底，
-    # 因此不作为有效收件人的判定依据。
-    has_receiver_info = any(
-        fields[k] for k in ("name", "phone", "landline")
-    ) or bool(fields["province"] or fields["city"])
-    if not has_receiver_info and fields["items_text"]:
-        fields["notes"] = (fields["notes"] + "; " + fields["items_text"]).strip("; ")
-        fields["items_text"] = ""
     return fields
 
 
@@ -61,3 +51,30 @@ def recognize_batch(text: str) -> list:
         if line:
             result.append(recognize_line(line))
     return result
+
+
+def merge_note_fragments(*fragments) -> str:
+    """拆分、去标签并去重备注片段。"""
+    result = []
+    seen = set()
+    for fragment in fragments:
+        text = str(fragment or "")
+        parts = re.split(
+            r"[;\n]+|\s+(?=(?:备注|留言|说明|要求|注意|标注|备忘)[：:])",
+            text,
+        )
+        for part in parts:
+            part = re.sub(
+                r"^(?:备注|留言|说明|要求|注意|标注|备忘)[：:]\s*",
+                "",
+                part.strip(),
+            )
+            part = re.sub(r"\s+", " ", part).strip()
+            if not part:
+                continue
+            key = part.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(part)
+    return "; ".join(result)
