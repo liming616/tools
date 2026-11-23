@@ -196,6 +196,22 @@ class AppFrameLogicTest(unittest.TestCase):
         finally:
             root.destroy()
 
+    def test_sender_text_height_is_half_receiver_text_height(self):
+        """回归：寄件文本框高度应为 3 行，收件文本框仍保持 6 行。"""
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            parent = tk.Frame(root)
+            frame = AppFrame.__new__(AppFrame)
+
+            frame._build_sender_card(parent)
+            frame._build_receiver_card(parent)
+
+            self.assertEqual(int(frame._sender_text.cget("height")), 3)
+            self.assertEqual(int(frame._receiver_text.cget("height")), 6)
+        finally:
+            root.destroy()
+
 
 if __name__ == "__main__":
     unittest.main()

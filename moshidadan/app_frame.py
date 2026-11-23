@@ -244,8 +244,8 @@ class AppFrame(tk.Tk):
         tk.Label(card, text="寄", font=("Microsoft YaHei", 26, "bold"),
                  bg=COLOR_BG, fg=COLOR_TEXT, padx=28, pady=20).pack(side=tk.RIGHT)
 
-        # 与收件人区域一致的大文本框，内容始终为单行
-        self._sender_text = tk.Text(body, height=6, wrap=tk.NONE, font=FONT_BODY,
+        # 寄件人区域文本框，内容始终为单行
+        self._sender_text = tk.Text(body, height=3, wrap=tk.NONE, font=FONT_BODY,
                                     bg="#FFFFFF", fg=COLOR_TEXT, relief=tk.FLAT,
                                     borderwidth=1, highlightbackground=COLOR_BORDER,
                                     highlightthickness=1, padx=6, pady=4)
