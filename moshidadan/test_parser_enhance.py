@@ -103,5 +103,25 @@ class CompoundDoorAddressTest(unittest.TestCase):
         self.assertEqual(parsed.full_address, address)
 
 
+class AddressSymbolRecognitionTest(unittest.TestCase):
+    def test_special_address_symbols_preserve_full_address(self):
+        """常见地址特殊符号不得截断地址或进入备注。"""
+        addresses = [
+            "河北省廊坊市三河市燕郊镇中骏·四季花都1期7号楼203",
+            "河北省廊坊市三河市燕郊镇中骏•四季花都1期7号楼203",
+            "河北省廊坊市三河市燕郊镇中骏・四季花都1期7号楼203",
+            "河北省廊坊市三河市燕郊镇中骏.四季花都1期7号楼203",
+            "河北省廊坊市三河市燕郊镇中骏．四季花都1期7号楼203",
+            "河北省廊坊市三河市燕郊镇某小区2#1#401",
+            "河北省廊坊市三河市燕郊镇某小区2/1/401",
+            "河北省廊坊市三河市燕郊镇某小区2-1-401",
+            "河北省廊坊市三河市燕郊镇某小区2.1.401",
+        ]
+
+        for address in addresses:
+            with self.subTest(address=address):
+                fields = recognize_line(f"孙先生 18273823222 {address}")
+                self.assertEqual(fields["full_address"], address)
+                self.assertEqual(fields["notes"], "")
 if __name__ == "__main__":
     unittest.main()
