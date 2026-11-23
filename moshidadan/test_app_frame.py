@@ -228,5 +228,37 @@ class AppFrameLogicTest(unittest.TestCase):
         frame._refresh_toggle_style.assert_called_once_with(frame._auto_btn, False)
         frame.on_auto_toggle.assert_not_called()
         self.assertFalse(frame._config["auto_recognize"])
+    def test_save_empty_sender_text_clears_derived_profile_fields(self):
+        """清空寄件文本时应清除档案派生字段并保留独立配置。"""
+        frame = AppFrame.__new__(AppFrame)
+        frame._config = {
+            "sender_profiles": [{
+                "label": "寄件人1",
+                "sender_text": "张三 13800138000 北京市",
+                "sender_name": "张三",
+                "sender_phone": "13800138000",
+                "sender_landline": "010-88888888",
+                "sender_address": "北京市",
+                "payment_method": "到付",
+                "temperature_layer": "冷藏(0-4℃)",
+                "items_text": "文件",
+            }]
+        }
+        frame._sender_sel = mock.Mock()
+        frame._sender_sel.get.return_value = "寄件人1"
+        frame.get_sender_text = mock.Mock(return_value="")
+        frame.get_receiver_text = mock.Mock(return_value="")
+
+        frame._save_current_sender_texts()
+
+        profile = frame._config["sender_profiles"][0]
+        self.assertEqual(profile["sender_text"], "")
+        self.assertEqual(profile["sender_name"], "")
+        self.assertEqual(profile["sender_phone"], "")
+        self.assertEqual(profile["sender_landline"], "")
+        self.assertEqual(profile["sender_address"], "")
+        self.assertEqual(profile["payment_method"], "到付")
+        self.assertEqual(profile["temperature_layer"], "冷藏(0-4℃)")
+        self.assertEqual(profile["items_text"], "文件")
 if __name__ == "__main__":
     unittest.main()

@@ -545,23 +545,21 @@ class MainV201Test(unittest.TestCase):
         app._ensure_sender_config.assert_called_once_with("文本识别")
         app._append_row.assert_not_called()
 
-    def test_non_jd_monthly_text_recognize_keeps_existing_behavior(self):
-        """非京东月结模板保持原有寄件来源处理。"""
+    def test_non_jd_monthly_text_recognize_uses_default_without_sender_group(self):
+        """非京东月结模板在未选寄件组时统一使用默认寄件配置。"""
         app = self._make_recognize_app(template_key="JD_OFFICIAL")
         app._config["selected_sender"] = ""
         app._config["default_sender"]["items_text"] = "水果"
-        app._resolve_sender_fields = mock.Mock(
-            return_value={"sender_name": "旧逻辑寄件人"}
-        )
-        app._default_sender_fields = mock.Mock()
+        app._resolve_sender_fields = mock.Mock()
+        app._default_sender_fields = mock.Mock(return_value={"sender_name": "默认寄件人"})
 
         with mock.patch.object(
             main_mod, "recognize_batch", return_value=[{"name": "李四"}]
         ):
             app._on_recognize()
 
-        app._resolve_sender_fields.assert_called_once_with("")
-        app._default_sender_fields.assert_not_called()
+        app._resolve_sender_fields.assert_not_called()
+        app._default_sender_fields.assert_called_once()
         app._append_row.assert_called_once()
 
     def test_official_weight_headers_map_to_weight_field(self):
@@ -841,5 +839,65 @@ class MainV201Test(unittest.TestCase):
         self.assertIn("周末配送", fields["notes"])
 
 
+    def test_auto_recognize_prefers_selected_sender_text(self):
+        """自动识别应优先使用当前寄件人组文本框。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._auto_recognize = True
+        app._config = self._complete_sender_config()
+        app._config["selected_sender"] = "寄件人1"
+        app._config["default_sender"]["items_text"] = "文件"
+        app._template_key = "JD_MONTHLY"
+        app._app_config = {}
+        app._frame = mock.Mock()
+        app._frame.get_focus_target.return_value = ""
+        app._frame.get_sender_text.return_value = "王五 13700137000 北京市朝阳区"
+        app._sender_mgr = mock.Mock()
+        app._sender_mgr.get_selected_sender_fields.return_value = {
+            "sender_name": "默认寄件人",
+            "sender_phone": "13800138000",
+            "sender_landline": "",
+            "sender_address": "北京市朝阳区",
+        }
+        app._sender_mgr.get_temperature_layer.return_value = ""
+        app._sender_mgr.get_payment_method.return_value = ""
+        app._sender_mgr.get_selected_strategy_id.return_value = ""
+        app._append_row = mock.Mock()
+
+        app.handle_clipboard_text("李四 13900139000 上海市浦东新区 文件")
+
+        fields = app._append_row.call_args.args[0]
+        self.assertEqual(fields["sender_name"], "王五")
+        self.assertEqual(fields["sender_phone"], "13700137000")
+        app._sender_mgr.get_selected_sender_fields.assert_not_called()
+
+    def test_auto_recognize_uses_default_when_selected_sender_text_empty(self):
+        """寄件文本框为空时应使用默认配置，而不是寄件人档案旧值。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._auto_recognize = True
+        app._config = self._complete_sender_config()
+        app._config["selected_sender"] = "寄件人1"
+        app._template_key = "JD_MONTHLY"
+        app._app_config = {}
+        app._frame = mock.Mock()
+        app._frame.get_focus_target.return_value = ""
+        app._frame.get_sender_text.return_value = ""
+        app._sender_mgr = mock.Mock()
+        app._sender_mgr.get_selected_sender_fields.return_value = {
+            "sender_name": "寄件人档案旧值",
+            "sender_phone": "13600136000",
+            "sender_landline": "",
+            "sender_address": "旧地址",
+        }
+        app._sender_mgr.get_temperature_layer.return_value = ""
+        app._sender_mgr.get_payment_method.return_value = ""
+        app._sender_mgr.get_selected_strategy_id.return_value = ""
+        app._append_row = mock.Mock()
+
+        app.handle_clipboard_text("李四 13900139000 上海市浦东新区 文件")
+
+        fields = app._append_row.call_args.args[0]
+        self.assertEqual(fields["sender_name"], "默认寄件人")
+        self.assertEqual(fields["sender_phone"], "13800138000")
+        app._sender_mgr.get_selected_sender_fields.assert_not_called()
 if __name__ == "__main__":
     unittest.main()

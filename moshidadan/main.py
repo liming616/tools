@@ -209,8 +209,13 @@ class App:
                 return
             lines = recognize_batch(normalized)
             fields = lines[0] if lines else {}
-            if fields:
-                self._append_row(self._merge_fields(fields))
+            if not fields:
+                return
+            sender_fields = self._resolve_current_recognition_sender_fields()
+            if sender_fields is None:
+                self._frame.set_status("寄件信息未配置，操作前请先配置")
+                return
+            self._append_row(self._merge_fields(fields, sender_fields))
             return
         if target == "receiver":
             self._frame.append_receiver(normalized)
@@ -344,8 +349,7 @@ class App:
             return
         if not self._ensure_sender_config("文本识别"):
             return
-        sender_text = self._frame.get_sender_text()
-        sender_fields = self._resolve_text_recognition_sender_fields(sender_text)
+        sender_fields = self._resolve_current_recognition_sender_fields()
         if sender_fields is None:
             messagebox.showwarning("提示", "请配置寄件信息")
             return
@@ -634,16 +638,12 @@ class App:
         return not self._sender_config_errors()
 
     def _resolve_text_recognition_sender_fields(self, sender_text: str):
-        """解析文本识别使用的寄件字段；默认配置无效时返回 None。"""
+        """按当前寄件人组文本框优先、默认配置兜底解析寄件字段。"""
         if not self._sender_config_ready():
             return None
-        if self._template_key != "JD_MONTHLY":
-            return self._resolve_sender_fields(sender_text)
         selected_sender = str(self._config.get("selected_sender") or "").strip()
         if selected_sender and str(sender_text or "").strip():
             return self._resolve_sender_fields(sender_text)
-        if not self._sender_config_ready():
-            return None
         return self._default_sender_fields()
 
     def _sender_config_errors(self) -> list:
@@ -685,6 +685,11 @@ class App:
         self._frame.set_status("寄件信息配置已完成")
         return True
 
+    def _resolve_current_recognition_sender_fields(self):
+        """使用当前寄件文本框解析识别寄件字段，空文本回退默认配置。"""
+        return self._resolve_text_recognition_sender_fields(
+            self._frame.get_sender_text()
+        )
 
 def main() -> None:
     """主入口：单实例 + 崩溃处理 + 加载配置 + 启动主窗口。"""

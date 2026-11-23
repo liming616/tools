@@ -648,8 +648,12 @@ class AppFrame(tk.Tk):
         if not profile:
             profile = {"label": label}
             profiles.append(profile)
-        profile["sender_text"] = self.get_sender_text()
+        sender_text = self.get_sender_text()
+        profile["sender_text"] = sender_text
         profile["receiver_text"] = self.get_receiver_text()
+        if not sender_text:
+            for key in ("sender_name", "sender_phone", "sender_landline", "sender_address"):
+                profile[key] = ""
 
     # ---------- 列表多选 ----------
     def set_row_checked(self, item, checked: bool) -> None:
