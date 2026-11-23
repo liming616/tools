@@ -206,7 +206,7 @@ class App:
             return
         target = self._frame.get_focus_target()
         if target == "sender":
-            self._frame.set_sender_text(normalized)
+            self._frame.replace_sender_selection(normalized)
             return
         if target == "receiver":
             self._frame.append_receiver(normalized)

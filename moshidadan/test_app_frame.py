@@ -152,6 +152,50 @@ class AppFrameLogicTest(unittest.TestCase):
         frame._sender_sel.set.assert_called_once_with("寄件人2")
         frame._load_sender_texts.assert_called_once_with("寄件人2")
 
+    def test_sender_paste_replaces_selected_text_only(self):
+        """回归：寄件人框有选区时，粘贴只替换选区并保留其他内容。"""
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            sender_text = tk.Text(root)
+            sender_text.insert("1.0", "张三 13800138000 北京")
+            sender_text.tag_add("sel", "1.3", "1.14")
+            sender_text.mark_set("insert", "1.14")
+
+            frame = AppFrame.__new__(AppFrame)
+            frame._sender_text = sender_text
+            frame.clipboard_get = mock.Mock(return_value="13900139000")
+
+            frame._on_sender_paste()
+
+            self.assertEqual(
+                sender_text.get("1.0", "end-1c"),
+                "张三 13900139000 北京",
+            )
+        finally:
+            root.destroy()
+
+    def test_sender_paste_without_selection_still_overwrites_sender_text(self):
+        """回归：寄件人框无选区时，保持原有整段覆盖行为。"""
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            sender_text = tk.Text(root)
+            sender_text.insert("1.0", "张三 13800138000 北京")
+
+            frame = AppFrame.__new__(AppFrame)
+            frame._sender_text = sender_text
+            frame.clipboard_get = mock.Mock(return_value="李四\n13900139000")
+
+            frame._on_sender_paste()
+
+            self.assertEqual(
+                sender_text.get("1.0", "end-1c"),
+                "李四 13900139000",
+            )
+        finally:
+            root.destroy()
+
 
 if __name__ == "__main__":
     unittest.main()

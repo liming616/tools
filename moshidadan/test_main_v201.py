@@ -340,6 +340,19 @@ class MainV201Test(unittest.TestCase):
         app._frame.set_sender_text.assert_not_called()
         app._append_row.assert_called_once_with({"name": "李四"})
 
+    def test_auto_route_replaces_selected_sender_text(self):
+        """回归：自动路由到寄件框时，应替换选区而不是整段覆盖。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._auto_recognize = False
+        app._config = {}
+        app._frame = mock.Mock()
+        app._frame.get_focus_target.return_value = "sender"
+
+        app.handle_clipboard_text("13900139000")
+
+        app._frame.replace_sender_selection.assert_called_once_with("13900139000")
+        app._frame.set_sender_text.assert_not_called()
+
     def test_auto_recognize_blocks_when_sender_config_incomplete(self):
         """回归：寄件框为空且寄件信息配置不完整时，阻断识别并提示配置。"""
         app = main_mod.App.__new__(main_mod.App)

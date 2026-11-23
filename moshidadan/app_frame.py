@@ -631,7 +631,7 @@ class AppFrame(tk.Tk):
             text = self.clipboard_get()
         except tk.TclError:
             return "break"
-        self.set_sender_text(text)
+        self.replace_sender_selection(text)
         return "break"
 
     def _load_sender_texts(self, label: str) -> None:
@@ -714,3 +714,19 @@ class AppFrame(tk.Tk):
             style = "TabActive.TButton" if group_label == label else "Tab.TButton"
             button.configure(style=style)
         self._load_sender_texts(label)
+
+    def replace_sender_selection(self, text: str) -> None:
+        """替换寄件人文本框选中内容；无选区时保持整段覆盖。"""
+        normalized = self._single_line(text)
+        try:
+            start = self._sender_text.index("sel.first")
+            end = self._sender_text.index("sel.last")
+        except tk.TclError:
+            self.set_sender_text(normalized)
+            return
+        if not normalized:
+            return
+        self._sender_text.delete(start, end)
+        self._sender_text.insert(start, normalized)
+        self._sender_text.mark_set("insert", f"{start}+{len(normalized)}c")
+        self._sender_text.see("insert")
