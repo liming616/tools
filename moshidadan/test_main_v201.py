@@ -337,24 +337,38 @@ class MainV201Test(unittest.TestCase):
         app._frame.append_receiver.assert_not_called()
         app._append_row.assert_called_once_with({"name": "李四"})
 
-    def test_auto_recognize_takes_priority_over_sender_focus(self):
-        """回归：自动识别开启时，寄件框焦点也不应拦截剪辑板文本。"""
+    def test_sender_focus_takes_priority_over_auto_recognize(self):
+        """寄件框有焦点时，新剪贴板文本应写入寄件框而不是识别入列表。"""
         app = main_mod.App.__new__(main_mod.App)
         app._auto_recognize = True
         app._config = self._complete_sender_config()
         app._frame = mock.Mock()
-        app._frame.get_sender_text.return_value = "张三 13800138000 北京 水果"
         app._frame.get_focus_target.return_value = "sender"
-        app._merge_fields = mock.Mock(return_value={"name": "李四"})
         app._append_row = mock.Mock()
 
-        with mock.patch.object(
-            main_mod, "recognize_batch", return_value=[{"name": "李四"}]
-        ):
+        with mock.patch.object(main_mod, "recognize_batch") as recognize:
             app.handle_clipboard_text("李四 13900139000 上海 文件")
 
-        app._frame.set_sender_text.assert_not_called()
-        app._append_row.assert_called_once_with({"name": "李四"})
+        app._frame.replace_sender_selection.assert_called_once_with(
+            "李四 13900139000 上海 文件"
+        )
+        app._append_row.assert_not_called()
+        recognize.assert_not_called()
+
+    def test_sender_focus_route_skips_sender_config_gate(self):
+        """寄件框只编辑文本，不应因默认配置缺失而阻断路由。"""
+        app = main_mod.App.__new__(main_mod.App)
+        app._auto_recognize = True
+        app._config = {"default_sender": {}}
+        app._frame = mock.Mock()
+        app._frame.get_focus_target.return_value = "sender"
+
+        app.handle_clipboard_text("王五 13700137000 北京市 文件")
+
+        app._frame.replace_sender_selection.assert_called_once_with(
+            "王五 13700137000 北京市 文件"
+        )
+        app._frame.set_status.assert_not_called()
 
     def test_auto_route_replaces_selected_sender_text(self):
         """回归：自动路由到寄件框时，应替换选区而不是整段覆盖。"""
@@ -807,6 +821,8 @@ class MainV201Test(unittest.TestCase):
         app._config["default_sender"]["items_text"] = "文件"
         app._template_key = "JD_MONTHLY"
         app._app_config = {}
+        app._frame = mock.Mock()
+        app._frame.get_focus_target.return_value = ""
         app._sender_mgr = mock.Mock()
         app._sender_mgr.get_selected_sender_fields.return_value = {}
         app._sender_mgr.get_temperature_layer.return_value = ""

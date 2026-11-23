@@ -195,9 +195,13 @@ class App:
             self._frame.after(400, self._poll_clipboard)
 
     def handle_clipboard_text(self, text):
-        """剪贴板新文本：自动识别开启时优先识别入列表，否则按焦点路由。"""
+        """剪贴板新文本：寄件框焦点优先，其次自动识别，再按其他焦点路由。"""
         normalized = normalize_text(text)
         if not normalized:
+            return
+        target = self._frame.get_focus_target()
+        if target == "sender":
+            self._frame.replace_sender_selection(normalized)
             return
         if self._auto_recognize:
             if not self._sender_config_ready():
@@ -207,10 +211,6 @@ class App:
             fields = lines[0] if lines else {}
             if fields:
                 self._append_row(self._merge_fields(fields))
-            return
-        target = self._frame.get_focus_target()
-        if target == "sender":
-            self._frame.replace_sender_selection(normalized)
             return
         if target == "receiver":
             self._frame.append_receiver(normalized)
