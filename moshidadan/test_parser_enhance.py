@@ -5,7 +5,9 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from address_parser import parse_address_safe
 from parser import parse_order, parse_items, _score_name_candidate
+from recognition import recognize_line
 
 
 class AddressTagTest(unittest.TestCase):
@@ -65,6 +67,40 @@ class NameScoreTest(unittest.TestCase):
 
     def test_address_token_low(self):
         self.assertLess(_score_name_candidate("科技园"), 0.2)
+
+
+class TextRecognitionNameTest(unittest.TestCase):
+    def test_honorific_name_is_kept_and_not_moved_to_notes(self):
+        """带称谓姓名应保留完整称谓，且不再进入备注。"""
+        fields = recognize_line(
+            "87025365 福建省福州市晋安区鼓山镇福马路420号"
+            "福建省肿瘤医院科研楼3楼设备科 月饼 黄月英女士"
+        )
+
+        self.assertEqual(fields["name"], "黄月英女士")
+        self.assertEqual(fields["items"], [])
+        self.assertNotIn("黄月英女士", fields["notes"])
+        self.assertIn("月饼", fields["notes"])
+
+
+class CompoundDoorAddressTest(unittest.TestCase):
+    def test_compound_door_number_is_preserved(self):
+        """连字符门牌链不得拆分或重排。"""
+        address = "浙江省杭州市临平区沁源公寓2-1-401"
+        parsed = parse_address_safe(address)
+
+        self.assertEqual(parsed.full_address, address)
+        self.assertIn("2-1-401", parsed.full_address)
+
+    def test_full_address_preserves_component_order(self):
+        """完整地址应保留科研楼、楼层和科室的原始顺序。"""
+        address = (
+            "福建省福州市晋安区鼓山镇福马路420号"
+            "福建省肿瘤医院科研楼3楼设备科"
+        )
+        parsed = parse_address_safe(address)
+
+        self.assertEqual(parsed.full_address, address)
 
 
 if __name__ == "__main__":

@@ -48,9 +48,13 @@ RE_LANDLINE = re.compile(r'(?:\d{3,4}-)?\d{7,8}')
 # 带边界的固话（避免从手机号中截取子串）
 RE_LANDLINE_BOUNDED = re.compile(r'(?<!\d)(?:(?:\d{3,4}-)?\d{7,8})(?!\d)')
 
-# 姓名模式（中文 2-4 字，前面可能有标签）
+# 姓名模式（中文姓名主体或带常见称谓，前面可能有标签）
+NAME_HONORIFIC_SUFFIXES = ("女士", "先生", "小姐", "老师", "师傅", "经理", "主任")
+_NAME_HONORIFIC_RE = re.compile(
+    r'(?:' + '|'.join(NAME_HONORIFIC_SUFFIXES) + r')$'
+)
 RE_NAME_TAGGED = re.compile(
-    r'(?:收货人|收件人|联系人|客户|姓名|名字|下单人)[：:]\s*([一-龥]{2,4})'
+    r'(?:收货人|收件人|联系人|客户|姓名|名字|下单人)[：:]\s*([一-龥]{2,8})'
 )
 RE_NAME_STANDALONE = re.compile(r'^([一-龥]{2,3})$', re.MULTILINE)
 
@@ -176,30 +180,22 @@ def _is_surname_name(name: str) -> bool:
 
 
 def _match_name_candidate(tok: str) -> Optional[str]:
-    """判断 token 是否像姓名，返回去掉尾随数字后的姓名；不像则返回 None。
-
-    用于「地址 电话 姓名 物品」同行格式中，区分姓名与物品信息：
-      - 「李明」「王五」→ 姓名
-      - 「欧阳锋」「司马光」→ 姓名（百家姓复姓优先匹配）
-      - 「两箱大桃」「三斤苹果」→ 物品（中文数字 + 量词开头）
-    """
-    m = re.match(r'^([一-龥]{2,4})\d*$', tok)
-    if not m:
+    """判断 token 是否像姓名，保留称谓并返回完整姓名。"""
+    parts = _extract_name_parts(tok)
+    if not parts:
         return None
-    name = m.group(1)
-    # 「中文数字 + 量词」开头（两箱/三斤/五件…）→ 物品，不是姓名
-    if re.search(rf'^[{CN_NUM_CHARS}]+[{MEASURE_WORDS}]', name):
+    full_name, name_core, _has_honorific = parts
+    if re.search(rf'^[{CN_NUM_CHARS}]+[{MEASURE_WORDS}]', name_core):
         return None
-    # 百家姓优先：复姓匹配前两字，单姓匹配首字
-    if len(name) >= 2 and name[:2] in _configured_compound_surnames:
-        return name
-    if name[0] in _configured_single_surnames:
-        return name
-    if name[0] in COMMON_SURNAMES:
-        return name
-    if len(name) <= 3:
-        return name
-    return None  # 4 字且非常见姓氏 → 更像物品
+    if len(name_core) >= 2 and name_core[:2] in _configured_compound_surnames:
+        return full_name
+    if name_core and name_core[0] in _configured_single_surnames:
+        return full_name
+    if name_core and name_core[0] in COMMON_SURNAMES:
+        return full_name
+    if len(name_core) <= 3:
+        return full_name
+    return None
 
 # 备注标签
 RE_NOTES = re.compile(
@@ -263,7 +259,7 @@ def parse_order(text: str) -> OrderInfo:
     # 姓名（标签）
     m = RE_NAME_TAGGED.search(text)
     if m:
-        order.name = m.group(1)
+        order.name = _normalize_name_token(m.group(1)) or m.group(1)
         mark_consumed(m)
 
     # 电话（标签）：手机/座机语义分开，互不赋值
@@ -442,8 +438,9 @@ def parse_order(text: str) -> OrderInfo:
     # 无标签姓名：第一行中文 2-3 字且无冒号
     if not order.name and remaining_lines:
         first = remaining_lines[0]
-        if RE_NAME_STANDALONE.match(first):
-            order.name = first
+        standalone_name = _normalize_name_token(first)
+        if standalone_name:
+            order.name = standalone_name
             remaining_lines = remaining_lines[1:]
         else:
             # 同行格式：「姓名 电话 地址 商品...」
@@ -453,9 +450,9 @@ def parse_order(text: str) -> OrderInfo:
                 phone_match = RE_LANDLINE_BOUNDED.search(first)
             if phone_match:
                 prefix = first[:phone_match.start()].strip()
-                m = re.match(r'^([一-龥]{2,4})$', prefix)
-                if m:
-                    order.name = m.group(1)
+                normalized = _normalize_name_token(prefix)
+                if normalized:
+                    order.name = normalized
 
     # 无标签商品：逐行尝试提取商品，且用空格分割单行
     if not order.items:
@@ -995,11 +992,11 @@ _ADDR_NAME_TOKEN_RE = re.compile(
 
 
 def _score_name_candidate(tok: str) -> float:
-    """姓名候选打分：0.0 为基本不可能，1.0 为非常像姓名。"""
-    m = re.match(r"^([\u4e00-\u9fa5]{2,4})\d*$", tok)
-    if not m:
+    """姓名候选打分：称谓仅用于辅助判断，姓名主体负责评分。"""
+    parts = _extract_name_parts(tok)
+    if not parts:
         return 0.0
-    name = m.group(1)
+    _full_name, name, has_honorific = parts
 
     if _PRODUCT_FEATURE_RE.search(name):
         return 0.05
@@ -1019,6 +1016,8 @@ def _score_name_candidate(tok: str) -> float:
         score += 0.08
     if name[:2] in _configured_compound_surnames:
         score += 0.1
+    if has_honorific:
+        score += 0.2
     return min(score, 1.0)
 
 
@@ -1032,8 +1031,30 @@ def _looks_like_product(tok: str) -> bool:
 
 
 def _is_name_token(tok: str) -> bool:
-    """判断 token 是否更像姓名而非商品（命中姓氏且评分达标）。"""
-    candidate = _match_name_candidate(tok)
-    if not candidate:
+    """判断 token 是否更像姓名而非商品（命中姓氏主体且评分达标）。"""
+    parts = _extract_name_parts(tok)
+    if not parts:
         return False
-    return _is_surname_name(candidate) and _score_name_candidate(tok) >= 0.6
+    _full_name, name_core, _has_honorific = parts
+    return _is_surname_name(name_core) and _score_name_candidate(tok) >= 0.6
+
+
+def _extract_name_parts(tok: str) -> Optional[tuple[str, str, bool]]:
+    """提取完整姓名、评分主体和称谓标记。"""
+    value = re.sub(r'\d+$', '', str(tok or '').strip())
+    if not value or not re.fullmatch(r'[一-龥]+', value):
+        return None
+    match = _NAME_HONORIFIC_RE.search(value)
+    has_honorific = bool(match)
+    name_core = value[:match.start()] if match else value
+    if not (1 <= len(name_core) <= 4):
+        return None
+    if not has_honorific and len(name_core) < 2:
+        return None
+    return value, name_core, has_honorific
+
+
+def _normalize_name_token(tok: str) -> Optional[str]:
+    """校验姓名 token，返回保留称谓的完整姓名。"""
+    parts = _extract_name_parts(tok)
+    return parts[0] if parts else None

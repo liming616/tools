@@ -68,7 +68,9 @@ class ParsedAddress:
 
     @property
     def full_address(self) -> str:
-        """拼接完整地址字符串。"""
+        """返回完整地址；优先保留规范化后的原始地址顺序。"""
+        if self.raw:
+            return self.raw
         parts = []
         if self.province:
             if self.province in MUNICIPALITIES:
@@ -629,6 +631,11 @@ RE_BUILDING = re.compile(
 # 单元/门
 RE_UNIT = re.compile(r'(\d{1,4}(?:单元|门|弄))')
 
+# 连字符/斜杠门牌链，如 2-1-401、2/1/401、2#1#401
+RE_COMPOUND_ROOM = re.compile(
+    r'(\d{1,4}(?:[-/／#＃－]\d{1,4}){1,3})'
+)
+
 # 层/楼/室（含显式后缀）
 RE_FLOOR_ROOM = re.compile(
     r'((?:\d{1,4}|[一二三四五六七八九十百千]+)(?:层|楼|室|房间|号房))'
@@ -742,6 +749,7 @@ def parse_address(text: str) -> ParsedAddress:
 
     # ---- 预处理 ----
     text = _normalize(text)
+    result.raw = text
     pos = 0  # 当前匹配位置
 
     # ---- Phase A: FMM 行政区域匹配 ----
@@ -845,6 +853,7 @@ def _extract_detail_components(result: ParsedAddress, detail_text: str) -> None:
         ('landmark', RE_LANDMARK),
         ('building', RE_BUILDING),
         ('unit', RE_UNIT),
+        ('compound_room', RE_COMPOUND_ROOM),
         ('room', RE_FLOOR_ROOM),
         ('bare_room', RE_BARE_ROOM),
     ]
@@ -882,6 +891,8 @@ def _extract_detail_components(result: ParsedAddress, detail_text: str) -> None:
                 result.building = value
             elif attr == 'unit':
                 result.unit = value
+            elif attr == 'compound_room':
+                result.detail = result.detail + value
             elif attr == 'room':
                 result.room = value
             elif attr == 'bare_room':
