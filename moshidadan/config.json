@@ -20,7 +20,7 @@
     "JD_MONTHLY": "p2",
     "JD_OFFICIAL": "p2"
   },
-  "auto_recognize": false,
+  "auto_recognize": true,
   "combo_copy": true,
   "save_dir": "D:/dingdong673/Documents",
   "sender_profiles": [

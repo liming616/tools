@@ -70,7 +70,7 @@ class AppFrame(tk.Tk):
         self._template_meta = self._parse_template_options(self._app_config)
         self._list_headers = list(self._resolve_list_headers())
         self._sender_sel = tk.StringVar(value=self._config.get("selected_sender", "寄件人1"))
-        self._auto_var = tk.BooleanVar(value=bool(self._config.get("auto_recognize", False)))
+        self._auto_var = tk.BooleanVar(value=bool(self._config.get("auto_recognize", True)))
         self._combo_var = tk.BooleanVar(value=bool(self._config.get("combo_copy", True)))
         self._version = str(app_config.get("version", "")).strip()
         self._focus_target = ""

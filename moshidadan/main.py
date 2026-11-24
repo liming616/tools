@@ -56,7 +56,7 @@ class App:
         self._save_dir = str(config.get("save_dir", "") or "").strip()
         self._list_headers = list(get_list_headers(self._template_key, app_config))
         self._row_data = []
-        self._auto_recognize = bool(config.get("auto_recognize", False))
+        self._auto_recognize = bool(config.get("auto_recognize", True))
         self._combo_copy = bool(config.get("combo_copy", True))
         self._sender_mgr = SenderManager(config)
 

@@ -83,7 +83,7 @@ DEFAULT_CONFIG = {
     "selected_template": "JD_MONTHLY",
     "selected_sender": "",
     "selected_strategy": {},
-    "auto_recognize": False,
+    "auto_recognize": True,
     "combo_copy": True,
     "save_dir": "",
     "sender_profiles": [],
